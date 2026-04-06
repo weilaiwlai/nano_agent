@@ -15,6 +15,9 @@ from urllib.parse import quote
 
 import requests
 import streamlit as st
+from dotenv import load_dotenv
+
+load_dotenv()
 
 
 def _jwt_subject_from_token(token: str) -> str:
@@ -34,7 +37,7 @@ def _jwt_subject_from_token(token: str) -> str:
 
 
 AGENT_API_BASE_URL = os.getenv("AGENT_API_BASE_URL", "http://localhost:8080").rstrip("/")
-AGENT_API_TOKEN = os.getenv("AGENT_API_TOKEN", "dev_token_123456").strip()
+AGENT_API_TOKEN = os.getenv("AGENT_API_TOKEN", "").strip()
 AGENT_TOKEN_SUB = _jwt_subject_from_token(AGENT_API_TOKEN)
 APPROVAL_CLICK_COOLDOWN_SECONDS = float(os.getenv("APPROVAL_CLICK_COOLDOWN_SECONDS", "1.5"))
 CHAT_ENDPOINT = f"{AGENT_API_BASE_URL}/api/v1/chat"

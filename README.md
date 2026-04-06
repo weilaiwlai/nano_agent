@@ -1,4 +1,4 @@
-﻿# NanoAgent
+﻿﻿# NanoAgent
 
 企业级 Multi-Agent 智能体项目（Supervisor + Worker + HITL 审批 + 长期记忆 + MCP 工具层）。
 
@@ -171,28 +171,114 @@ start.bat
 
 ## 主要 API
 
-### 健康检查
+### 一、健康检查接口（2个）
 
-- `GET /health`
-- `GET /health/mcp`
+#### 1. GET /health
 
-### LLM 会话（BYOK）
+**作用**：服务存活探针，返回服务状态
 
-- `GET /api/v1/session/llm/providers`
-- `POST /api/v1/session/llm/validate`
-- `POST /api/v1/session/llm`
-- `DELETE /api/v1/session/llm/{session_id}`
+**返回**：`{"status": "ok", "service": "agent_service"}`
 
-### 聊天与审批
+**用途**：用于容器健康检查和服务监控
 
-- `POST /api/v1/chat`（SSE）
-- `POST /api/v1/chat/resume`（approve / reject）
+#### 2. GET /health/mcp
 
-### 长期记忆
+**作用**：检查上游MCP服务的可达性与健康状态
 
-- `POST /api/v1/memory`
-- `GET /api/v1/memory/{user_id}`
-- `DELETE /api/v1/memory/{user_id}/{memory_id}`
+**功能**：
+- 调用MCP服务的 `/health` 端点
+- 返回MCP服务的健康状态（正常/降级）
+
+### 二、LLM会话管理接口（4个）
+
+#### 3. GET /api/v1/session/llm/providers
+
+**作用**：返回后端支持的LLM提供商列表
+
+**功能**：
+- 返回支持的提供商（qwen、openai、deepseek、groq等）
+- 包含每个提供商的默认配置（base_url、embedding_model等）
+- 供前端配置页使用
+
+#### 4. POST /api/v1/session/llm/validate
+
+**作用**：校验用户输入的LLM配置是否可用
+
+**功能**：
+- 验证API key、base_url、model等配置
+- 可选择验证聊天功能和embedding功能
+- 返回验证结果和错误信息
+
+#### 5. POST /api/v1/session/llm
+
+**作用**：创建会话级LLM凭据（BYOK模式）
+
+**功能**：
+- 加密存储用户的API密钥和配置
+- 支持设置会话过期时间（TTL）
+- 返回session_id用于后续聊天请求
+- 每个会话绑定到特定用户
+
+#### 6. DELETE /api/v1/session/llm/{session_id}
+
+**作用**：主动销毁会话级LLM凭据
+
+**功能**：
+- 删除指定的LLM会话
+- 验证会话归属权（只能删除自己的会话）
+- 清理加密存储的凭据
+
+### 三、聊天与审批接口（2个）
+
+#### 7. POST /api/v1/chat
+
+**作用**：以SSE流式方式执行Agent图并实时返回token
+
+**功能**：
+- 接收用户查询，执行完整的Agent工作流
+- 支持工具调用（数据库查询、发送邮件等）
+- 自动检测并处理待审批的工具调用
+- 自动写入用户自述背景到长期记忆
+- 返回SSE流式响应（实时token、工具事件等）
+
+#### 8. POST /api/v1/chat/resume
+
+**作用**：对已中断的工具调用进行审批并恢复执行
+
+**功能**：
+- 支持两种操作：`approve`（批准）和`reject`（拒绝）
+- 恢复被中断的Agent执行流程
+- 处理审批结果并继续生成响应
+
+### 四、长期记忆管理接口（3个）
+
+#### 9. POST /api/v1/memory
+
+**作用**：将用户偏好写入长期记忆
+
+**功能**：
+- 使用embedding模型将文本向量化存储
+- 支持后续语义检索
+- 需要配置embedding模型
+- 返回memory_id用于管理
+
+#### 10. GET /api/v1/memory/{user_id}
+
+**作用**：查看某个用户的长期记忆列表
+
+**功能**：
+- 支持分页查询（limit参数，默认50条，最大200条）
+- 返回用户的所有记忆条目
+- 包含记忆ID和文本内容
+
+#### 11. DELETE /api/v1/memory/{user_id}/{memory_id}
+
+**作用**：删除某个用户的一条长期记忆
+
+**功能**：
+- 验证记忆归属权
+- 删除指定的记忆条目
+- 返回删除结果
 
 ## 数据库查询能力怎么用
 
@@ -210,22 +296,6 @@ SELECT column_name, data_type FROM information_schema.columns WHERE table_name='
 - “请先查询 `public` 下的表，再告诉我每个表大致用途。”
 - “请查询 `agent_user_settings` 的字段结构，不要修改任何数据。”
 
-## 自动化测试
-
-当前已包含 `session_store` 安全相关单测（加密存储、解密回读、owner 绑定、兼容旧数据）。
-
-推荐：
-
-```bash
-run_tests.bat
-```
-
-手动容器执行：
-
-```bash
-docker cp tests/test_session_store.py agent_service:/tmp/test_session_store.py
-docker exec agent_service python -m pytest -q /tmp/test_session_store.py
-```
 
 ## 开源发布前检查清单
 
