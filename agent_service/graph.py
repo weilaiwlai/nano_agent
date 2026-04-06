@@ -803,6 +803,7 @@ async def _call_mcp_tool(
     timeout = httpx.Timeout(connect=5.0, read=25.0, write=25.0, pool=5.0)
     headers: dict[str, str] = {}
     if MCP_SERVICE_TOKEN:
+        headers["Authorization"] = f"Bearer {MCP_SERVICE_TOKEN}"
         headers["X-Service-Token"] = MCP_SERVICE_TOKEN
     normalized_user_id = (enforced_user_id or "").strip()
     if normalized_user_id:
@@ -810,7 +811,7 @@ async def _call_mcp_tool(
 
     request_specs: list[tuple[str, dict[str, Any]]] = [
         (f"{MCP_BASE_URL}/tools/{tool_name}", arguments),
-        (f"{MCP_BASE_URL}/mcp/tools/{tool_name}", arguments),
+        # 移除对 /mcp/tools/{tool_name} 的尝试，因为这是SSE传输端点
     ]
 
     async with httpx.AsyncClient(timeout=timeout) as client:
