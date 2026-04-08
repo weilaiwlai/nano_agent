@@ -28,7 +28,9 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import InjectedState, ToolNode
 
 from memory import UserMemoryManager
+from dotenv import load_dotenv
 
+load_dotenv()
 if not logging.getLogger().handlers:
     logging.basicConfig(
         level=os.getenv("LOG_LEVEL", "INFO").upper(),
@@ -37,7 +39,7 @@ if not logging.getLogger().handlers:
 
 logger = logging.getLogger("nanoagent.agent_service.graph")
 
-MCP_BASE_URL = os.getenv("MCP_BASE_URL", "http://mcp_server:8000").rstrip("/")
+MCP_BASE_URL = os.getenv("MCP_BASE_URL", "http://localhost:8000").rstrip("/")
 MCP_SERVICE_TOKEN = os.getenv("MCP_SERVICE_TOKEN", "").strip()
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0").strip()
 GRAPH_CHECKPOINTER_BACKEND = os.getenv("GRAPH_CHECKPOINTER_BACKEND", "postgres").strip().lower()
@@ -103,6 +105,8 @@ CONTROL_MARKUP_KEYWORDS = (
     "parameter",
     "tool_send_report",
     "tool_query_database",
+    "tool_get_current_time",
+    "tool_search",
     "string=\"true\"",
 )
 MAX_MODEL_HISTORY_MESSAGES = int(os.getenv("MAX_MODEL_HISTORY_MESSAGES", "60"))
@@ -110,14 +114,15 @@ REPORT_CONTENT_SOFT_LIMIT = int(os.getenv("REPORT_CONTENT_SOFT_LIMIT", "8000"))
 EMAIL_DRAFT_TARGET_CHARS = int(os.getenv("EMAIL_DRAFT_TARGET_CHARS", "2000"))
 SUPERVISOR_ROUTER_PROMPT = (
     "你是多智能体系统的极速语义路由器（Supervisor Router）。\n"
-    "你只能输出一个词：DataScientist / Reporter / Assistant / FINISH。\n"
+    "你只能输出一个词：DataScientist / Reporter / Assistant / Travel / FINISH。\n"
     "不要输出任何解释、标点、JSON 或多余文本。\n\n"
     "路由原则：\n"
-    "1) DataScientist：只有当用户需要数据库查询、数据统计、SQL/表数据验证时。\n"
+    "1) DataScientist：当回答用户需要外部知识查询时，如时间、数据库查询、网页搜索。\n"
     "2) Reporter：只有当用户明确要求“立即执行外部动作”，当前仅包括发送邮件。\n"
     "   注意：仅要求“写邮件草稿/润色/总结内容”属于 Assistant，不属于 Reporter。\n"
     "3) Assistant：普通问答、解释、总结、建议、邮件草稿撰写、改写等无外部副作用场景。\n"
-    "4) FINISH：用户明确表示结束对话时。\n"
+    "4) Travel：用户要求地点、旅游相关。\n"
+    "5) FINISH：用户明确表示结束对话时。\n"
 )
 NO_TOOL_INTENT_PROMPT = (
     "你是 Assistant 智能体，负责普通问答与文本生成。\n"
@@ -132,6 +137,7 @@ REPORT_EXECUTION_GUARD_PROMPT = (
     "若只是让助手写草稿、总结、润色、准备内容，则输出 DRAFT。\n"
     "只有明确执行发送动作时才输出 EXECUTE。\n"
 )
+
 
 
 def _truncate_for_log(value: str, *, max_len: int = TOOL_LOG_MAX_TEXT_LENGTH) -> str:
@@ -234,7 +240,7 @@ async def init_graph_runtime() -> Any:
         _checkpointer_cm = None
         _checkpointer_backend_in_use = "memory"
 
-    app_graph = _build_workflow().compile(checkpointer=checkpointer, interrupt_before=["tools_node"])
+    app_graph = _build_workflow().compile(checkpointer=checkpointer)
     logger.info("graph runtime 初始化完成 | checkpointer_backend=%s", _checkpointer_backend_in_use)
     return app_graph
 
@@ -395,7 +401,25 @@ def _get_non_stream_chat_llm(config: RunnableConfig | None) -> ChatOpenAI:
         raise RuntimeError("未提供可用的 LLM 配置，请先创建会话或设置默认 OPENAI_API_KEY。")
     return _non_stream_chat_llm_from_profile(profile)
 
+def save_graph_visualization(graph: StateGraph, filename: str = "graph.png") -> None:
+    """保存状态图的可视化表示。
 
+    Args:
+        graph: 状态图实例。
+        filename: 保存文件路径。
+    """
+    # 尝试执行以下代码块
+    try:
+        # 以二进制写模式打开文件
+        with open(filename, "wb") as f:
+            # 将状态图转换为Mermaid格式的PNG并写入文件
+            f.write(graph.get_graph().draw_mermaid_png())
+        # 记录保存成功的日志
+        logger.info(f"Graph visualization saved as {filename}")
+    # 捕获IO错误
+    except IOError as e:
+        # 记录警告日志
+        logger.warning(f"Failed to save graph visualization: {e}")
 def _get_bound_llm(config: RunnableConfig | None, worker: Literal["data_scientist", "reporter"]) -> Any:
     """获取绑定工具后的 Worker LLM。"""
     profile = _llm_profile_from_config(config)
@@ -407,9 +431,11 @@ def _get_bound_llm(config: RunnableConfig | None, worker: Literal["data_scientis
     cached = _bound_llm_cache.get(cache_key)
     if cached is not None:
         return cached
-
+    
     if worker == "data_scientist":
-        bound = base_llm.bind_tools([tool_query_database])
+        bound = base_llm.bind_tools([tool_query_database, tool_get_current_time, tool_search])
+    elif worker == "travel_planner":
+        bound = base_llm.bind_tools([tool_get_current_time])
     else:
         # 预留：Reporter 若扩展受控写能力，可复用该分支。
         bound = base_llm.bind_tools([tool_upsert_user_setting])
@@ -681,7 +707,7 @@ def _latest_assistant_answer_before_last_user(messages: list[BaseMessage]) -> st
             continue
 
         upper_text = text.upper().replace('"', "").replace("'", "").strip()
-        if upper_text in {"DATASCIENTIST", "REPORTER", "ASSISTANT", "FINISH"}:
+        if upper_text in {"DATASCIENTIST", "REPORTER", "ASSISTANT", "FINISH", "TRAVEL"}:
             continue
 
         return text
@@ -877,6 +903,18 @@ async def _call_mcp_tool(
         },
         ensure_ascii=False,
     )
+@tool("tool_search")
+async def tool_search(query: str) -> str:
+    """网络搜索关键字查询信息"""
+    result=await _call_mcp_tool("search", {"query": query})
+    logging.info(f"搜索 | tool=search | query={query} | result={result}")
+    return result
+@tool("tool_get_current_time")
+async def tool_get_current_time() -> str:
+    """获取当前时间"""
+    result=await _call_mcp_tool("get_current_time", {})
+    logging.info(f"获取时间 | tool=get_current_time | result={result}")
+    return result
 
 
 @tool("tool_query_database")
@@ -955,7 +993,7 @@ async def tool_upsert_user_setting(
     )
 
 
-tools = [tool_query_database, tool_send_report, tool_upsert_user_setting]
+tools = [tool_query_database, tool_send_report, tool_upsert_user_setting, tool_get_current_time, tool_search]
 tools_node = ToolNode(tools)
 
 
@@ -996,7 +1034,7 @@ async def retrieve_memory_node(
 
 def _normalize_supervisor_decision(
     raw_text: str,
-) -> Literal["DataScientist", "Reporter", "Assistant", "FINISH"]:
+) -> Literal["DataScientist", "Reporter", "Assistant", "FINISH", "Travel"]:
     """将主管输出规范化为固定选项。"""
     text = raw_text.strip().replace('"', "").replace("'", "")
     upper_text = text.upper()
@@ -1007,6 +1045,8 @@ def _normalize_supervisor_decision(
         return "Reporter"
     if "ASSISTANT" in upper_text:
         return "Assistant"
+    if "TRAVEL" in upper_text:
+        return "Travel"
     if "FINISH" in upper_text:
         return "FINISH"
     return "FINISH"
@@ -1100,11 +1140,51 @@ def _trim_supervisor_decision(messages: list[BaseMessage]) -> list[BaseMessage]:
     last = messages[-1]
     if isinstance(last, AIMessage):
         decision = _normalize_supervisor_decision(_message_to_text(last))
-        if decision in {"DataScientist", "Reporter", "Assistant", "FINISH"}:
+        if decision in {"DataScientist", "Reporter", "Assistant", "FINISH", "Travel"}:
             return messages[:-1]
     return messages
 
+async def travel_planner_node(
+    state: AgentState,
+    config: RunnableConfig,
+) -> dict[str, list[BaseMessage] | str]:
+    """旅行规划师节点：负责旅行计划制定与目的地信息查询。"""
+    user_id = state.get("user_id", "").strip()
+    history = _sanitize_history_for_model(_trim_supervisor_decision(state.get("messages", [])))
+    memory_context = state.get("memory_context", "")
+    latest_query = _latest_user_query(history)
 
+    logger.info(
+        "节点开始 | travel_planner_node | user_id=%s | history_len=%d",
+        user_id or "unknown",
+        len(history),
+    )
+    system_prompt = (
+        "你是 TravelPlanner 智能体，负责旅行计划制定与目的地信息查询。\n"
+        "如需查询当前时间，请调用工具tool_get_current_time。\n"
+        "如需查询旅行相关信息，请调用相关工具；若无需查询可直接回答。\n"
+        "回答应包含详细的行程安排、景点推荐、交通建议和住宿信息。\n"
+        "当用户表达旅行需求但未提供具体目的地时，请先给出旅行规划引导和建议。\n"
+        "请优先参考用户长期记忆。\n\n"
+        f"长期记忆上下文：\n{memory_context or '（无）'}"
+    )
+    llm_runner = _get_bound_llm(config, "travel_planner")
+    model_input: list[BaseMessage] = [SystemMessage(content=system_prompt), *history]
+
+    try:
+        response = await llm_runner.ainvoke(model_input, config=config)
+        response = _sanitize_ai_message_text(response)
+        tool_call_count = len(response.tool_calls) if isinstance(response, AIMessage) else 0
+        logger.info(
+            "节点结束 | travel_planner_node | user_id=%s | tool_calls=%d",
+            user_id or "unknown",
+            tool_call_count,
+        )
+        return {"messages": [response], "sender": "Travel"}
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("节点异常 | travel_planner_node | user_id=%s | error=%s", user_id, exc)
+        fallback = AIMessage(content="旅行规划节点处理失败，请稍后重试。")
+        return {"messages": [fallback], "sender": "Travel"}
 async def data_scientist_node(
     state: AgentState,
     config: RunnableConfig,
@@ -1132,6 +1212,8 @@ async def data_scientist_node(
     system_prompt = (
         "你是 DataScientist 智能体，负责数据分析与事实查询。\n"
         "如需读取数据库，请调用 tool_query_database；若无需查库可直接回答。\n"
+        "如需查询当前时间，请调用 tool_get_current_time。\n"
+        "如需查询网络信息，请调用 tool_search。\n"
         "回答应准确、结构化，并基于可验证信息。\n"
         "当用户表达数据库需求但未提供具体 SQL 时，请先给出清晰的查询引导和可复制 SQL 示例。\n"
         "请优先参考用户长期记忆。\n\n"
@@ -1297,7 +1379,7 @@ async def assistant_node(
 
 def _route_after_supervisor(
     state: AgentState,
-) -> Literal["data_scientist_node", "reporter_node", "assistant_node", "__end__"]:
+) -> Literal["data_scientist_node", "reporter_node", "assistant_node", "travel_planner_node", "__end__"]:
     """主管路由：根据主管最后输出决定下一跳。"""
     messages = state.get("messages", [])
     if not messages:
@@ -1319,10 +1401,28 @@ def _route_after_supervisor(
     if decision == "Assistant":
         logger.info("路由 | supervisor_node -> assistant_node")
         return "assistant_node"
+    if decision == "Travel":
+        logger.info("路由 | supervisor_node -> travel_planner_node")
+        return "travel_planner_node"
 
     logger.info("路由 | supervisor_node -> END")
     return "__end__"
 
+def _route_after_travel_planner(
+    state: AgentState,
+) -> Literal["tools_node", "__end__"]:
+    """旅行规划师节点后路由。"""
+    messages = state.get("messages", [])
+    if not messages:
+        return "__end__"
+
+    last_message = messages[-1]
+    if isinstance(last_message, AIMessage) and last_message.tool_calls:
+        logger.info("路由 | travel_planner_node -> tools_node | tool_calls=%d", len(last_message.tool_calls))
+        return "tools_node"
+
+    logger.info("路由 | travel_planner_node -> END | reason=no_tool_calls")
+    return "__end__"
 
 def _route_after_data_scientist(
     state: AgentState,
@@ -1363,13 +1463,15 @@ def _route_after_assistant(_: AgentState) -> Literal["__end__"]:
     return "__end__"
 
 
-def _route_after_tools(state: AgentState) -> Literal["data_scientist_node", "reporter_node"]:
+def _route_after_tools(state: AgentState) -> Literal["data_scientist_node", "reporter_node","travel_planner_node"]:
     """工具节点后路由：按 sender 回到对应 Worker。"""
     sender = (state.get("sender") or "").strip()
     if sender == "Reporter":
         logger.info("路由 | tools_node -> reporter_node | sender=%s", sender)
         return "reporter_node"
-
+    if sender == "Travel":
+        logger.info("路由 | tools_node -> travel_planner_node | sender=%s", sender)
+        return "travel_planner_node"
     logger.info("路由 | tools_node -> data_scientist_node | sender=%s", sender or "unknown")
     return "data_scientist_node"
 
@@ -1381,6 +1483,7 @@ workflow.add_node("data_scientist_node", data_scientist_node)
 workflow.add_node("reporter_node", reporter_node)
 workflow.add_node("assistant_node", assistant_node)
 workflow.add_node("tools_node", tools_node)
+workflow.add_node("travel_planner_node", travel_planner_node)
 
 workflow.add_edge(START, "retrieve_memory_node")
 workflow.add_edge("retrieve_memory_node", "supervisor_node")
@@ -1392,6 +1495,7 @@ workflow.add_conditional_edges(
         "data_scientist_node": "data_scientist_node",
         "reporter_node": "reporter_node",
         "assistant_node": "assistant_node",
+        "travel_planner_node": "travel_planner_node",
         "__end__": END,
     },
 )
@@ -1404,10 +1508,9 @@ workflow.add_conditional_edges(
         "__end__": END,
     },
 )
-
 workflow.add_conditional_edges(
-    "reporter_node",
-    _route_after_reporter,
+    "travel_planner_node",
+    _route_after_travel_planner,
     {
         "tools_node": "tools_node",
         "__end__": END,
@@ -1428,5 +1531,18 @@ workflow.add_conditional_edges(
     {
         "data_scientist_node": "data_scientist_node",
         "reporter_node": "reporter_node",
+        "travel_planner_node": "travel_planner_node",
     },
 )
+import asyncio
+async def visualize_graph():
+    # 初始化图运行时
+    graph = await init_graph_runtime()
+    
+    # 保存可视化图像
+    save_graph_visualization(graph, "nano_agent_graph.png")
+    print("Graph visualization saved as nano_agent_graph.png")
+
+# 运行可视化
+if __name__ == "__main__":
+    asyncio.run(visualize_graph())

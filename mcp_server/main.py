@@ -28,18 +28,16 @@ from database import _db_engine, _db_write_engine, _ensure_write_schema
 from security import _is_authorized_service_request, _is_protected_path, _resolve_effective_setting_user_id
 from tools import register_tools
 from utils import _parse_tool_output
-
+from dotenv import load_dotenv
 load_dotenv()
 
 mcp = FastMCP(name="NanoAgent MCP Server")
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """应用生命周期管理。"""
     # 启动时初始化数据库连接
     global _db_engine, _db_write_engine
-    
     db_url = os.getenv("DB_URL", "").strip()
     if db_url:
         _db_engine = create_async_engine(db_url, pool_pre_ping=True)
@@ -62,7 +60,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 # 注册所有工具
-tool_functions = register_tools(mcp)
+
 
 # 创建FastAPI应用
 app = FastAPI(title="NanoAgent MCP Server", version="1.0.0", lifespan=lifespan)
@@ -81,7 +79,8 @@ async def service_auth_middleware(request: Request, call_next):
     response = await call_next(request)
     return response
 
-
+tool_functions = register_tools(mcp)
+logging.info(f"工具注册完成: {tool_functions}")
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "service": "mcp_server"}
@@ -116,8 +115,13 @@ async def proxy_tool_call(tool_name: str, request: Request) -> dict[str, Any]:
                 body.get("setting_key", ""),
                 body.get("setting_value", "")
             )
+        elif tool_name == "get_current_time":
+            result = await tool_functions["get_current_time"]()
+        elif tool_name == "search":
+            result = await tool_functions["search"](body.get("query", ""))
         else:
             return {"status": "error", "message": f"未知工具: {tool_name}"}
+
         
         return _parse_tool_output(result)
     except Exception as exc:
