@@ -5,6 +5,7 @@ import glob
 import logging
 import os
 import shutil
+import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from utils import _json_response
@@ -60,10 +61,19 @@ class FilesystemService:
 
         return False
 
-    def _ensure_path_allowed(self, path: str):
-        """确保路径被允许访问，否则抛出异常"""
-        if not self.is_path_allowed(path):
-            raise PermissionError(f"路径不在允许的目录中: {path}")
+    async def _ensure_path_allowed(self, path: str):
+        """确保路径被允许访问，否则记录日志"""
+        is_allowed_result = await self.is_path_allowed(path)
+        try:
+            allowed_data = json.loads(is_allowed_result)
+            is_allowed = allowed_data.get("allowed", False)
+        except:
+            is_allowed = False
+            
+        if not is_allowed:
+            logger.warning(f"路径不在允许的目录中: {path}")
+            return False
+        return True
 
     async def read_file(self, path: str):
         """
@@ -79,9 +89,8 @@ class FilesystemService:
             PermissionError: 路径不被允许
             FileNotFoundError: 文件不存在
         """
-        self._ensure_path_allowed(path)
+        await self._ensure_path_allowed(path)
 
-        # 使用asyncio在线程中执行IO操作
         def _read_sync():
             with open(path, "r", encoding="utf-8") as f:
                 return f.read()
@@ -127,10 +136,9 @@ class FilesystemService:
         Raises:
             PermissionError: 路径不被允许
         """
-        self._ensure_path_allowed(path)
+        await self._ensure_path_allowed(path)
 
         def _write_sync():
-            # 确保父目录存在
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "w", encoding="utf-8") as f:
                 f.write(content)
@@ -153,7 +161,7 @@ class FilesystemService:
         Raises:
             PermissionError: 路径不被允许
         """
-        self._ensure_path_allowed(path)
+        await self._ensure_path_allowed(path)
 
         def _create_sync():
             os.makedirs(path, exist_ok=True)
@@ -180,7 +188,7 @@ class FilesystemService:
             PermissionError: 路径不被允许
             FileNotFoundError: 目录不存在
         """
-        self._ensure_path_allowed(path)
+        await self._ensure_path_allowed(path)
 
         def _list_sync():
             items = []
@@ -218,8 +226,8 @@ class FilesystemService:
             FileNotFoundError: 源文件不存在
             FileExistsError: 目标文件已存在
         """
-        self._ensure_path_allowed(source)
-        self._ensure_path_allowed(destination)
+        await self._ensure_path_allowed(source)
+        await self._ensure_path_allowed(destination)
 
         def _move_sync():
             if os.path.exists(destination):
@@ -254,7 +262,7 @@ class FilesystemService:
         Raises:
             PermissionError: 路径不被允许
         """
-        self._ensure_path_allowed(path)
+        await self._ensure_path_allowed(path)
 
         def _search_sync():
             results = []
@@ -293,7 +301,7 @@ class FilesystemService:
             PermissionError: 路径不被允许
             FileNotFoundError: 文件不存在
         """
-        self._ensure_path_allowed(path)
+        await self._ensure_path_allowed(path)
 
         def _get_info_sync():
             stat_result = os.stat(path)
@@ -343,7 +351,7 @@ class FilesystemService:
             PermissionError: 路径不被允许
             FileNotFoundError: 文件不存在
         """
-        self._ensure_path_allowed(path)
+        await self._ensure_path_allowed(path)
 
         def _edit_sync():
             # 读取原始内容

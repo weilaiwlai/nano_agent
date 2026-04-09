@@ -12,6 +12,8 @@ from pydantic import BaseModel, Field
 from starlette.requests import Request
 from auth import _resolve_effective_user_id
 from graph.workflow import get_app_graph
+from auth import _resolve_effective_user_id
+import graph.workflow as get_app_graph
 
 from auth import (
     AuthContext,
@@ -464,9 +466,6 @@ def register_routes(app: FastAPI, session_store: Any, session_store_ready: bool)
         auth_context: AuthContext = Depends(_require_user_context),
     ) -> StreamingResponse:
         """对已中断的工具调用进行审批并恢复执行。"""
-        from auth import _resolve_effective_user_id
-        import agent_service.graph.graph as graph_runtime
-
         token_subject = _require_subject(auth_context)
         user_id = _resolve_effective_user_id(
             token_subject=token_subject,
@@ -480,7 +479,7 @@ def register_routes(app: FastAPI, session_store: Any, session_store_ready: bool)
         logger.info("收到审批续跑请求 | user_id=%s | action=%s", user_id, action)
 
         try:
-            state = await graph_runtime.get_app_graph().aget_state(config)
+            state = await get_app_graph().aget_state(config)
             if not _is_waiting_for_tools_node(state):
                 return StreamingResponse(
                     _stream_resume_no_pending(user_id=user_id),
@@ -501,7 +500,7 @@ def register_routes(app: FastAPI, session_store: Any, session_store_ready: bool)
                 if not tool_messages:
                     raise HTTPException(status_code=400, detail="待审批工具调用缺少 tool_call_id，无法拒绝")
 
-                await graph_runtime.get_app_graph().aupdate_state(
+                await get_app_graph().aupdate_state(
                     config,
                     {"messages": tool_messages},
                     as_node="tools_node",

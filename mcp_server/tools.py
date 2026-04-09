@@ -39,7 +39,7 @@ def register_tools(mcp: FastMCP) -> dict[str, callable]:
     async def search(query: str) -> str:
         """网络搜索关键字查询信息"""
         return await search_tool(query)
-    filesystem = FilesystemService(['D:/nano_agent/agentdata'])
+    filesystem = FilesystemService(['.\agentdata'])
     @mcp.tool()
     async def is_path_allowed(path: str) -> str:
         """检查路径是否被允许"""

@@ -27,7 +27,6 @@ from .tools import _get_memory_manager
 from .utils import _build_tool_call_message, _build_reporter_success_message, _normalize_send_report_args
 from .utils import (
     _build_database_help_answer,
-    _derive_report_content,
     _extract_first_email,
     _extract_report_content_from_query,
     _has_database_intent,

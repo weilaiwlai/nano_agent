@@ -1,8 +1,3 @@
-"""NanoAgent 工作流构建模块。
-
-构建和编译状态图工作流。
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -43,7 +38,7 @@ _checkpointer_backend_in_use = _graph_runtime_globals["_checkpointer_backend_in_
 
 
 async def _build_persistent_checkpointer() -> tuple[Any, Any | None, str]:
-    """构建持久化 checkpointer（异步版本）。"""
+    """构建持久化 checkpointer。"""
     backend = GRAPH_CHECKPOINTER_BACKEND or "postgres"
 
     if backend == "memory":
@@ -79,8 +74,7 @@ async def _build_persistent_checkpointer() -> tuple[Any, Any | None, str]:
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(
                 "未安装 Postgres checkpointer 依赖：langgraph-checkpoint-postgres + psycopg[binary]"
-            ) from exc
-
+            ) from exc     
         cm = AsyncPostgresSaver.from_conn_string(GRAPH_CHECKPOINTER_POSTGRES_URL)
         saver = await cm.__aenter__()
         await saver.setup()
@@ -117,6 +111,15 @@ def _build_workflow() -> StateGraph:
     workflow.add_conditional_edges(
         "data_scientist_node",
         _route_after_data_scientist,
+        {
+            "tools_node": "tools_node",
+            "__end__": END,
+        },
+    )
+    
+    workflow.add_conditional_edges(
+        "reporter_node",
+        _route_after_reporter,
         {
             "tools_node": "tools_node",
             "__end__": END,

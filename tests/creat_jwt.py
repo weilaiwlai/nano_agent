@@ -4,7 +4,7 @@ import hmac
 import hashlib
 import time
 
-def create_jwt(subject: str, secret: str, expire_hours: int = 24) -> str:
+def create_jwt(subject: str, secret: str, expire_hours: int = 1024) -> str:
     header = {"alg": "HS256", "typ": "JWT"}
     payload = {
         "sub": subject,
