@@ -21,7 +21,7 @@ from .utils import _message_to_text
 
 def _route_after_supervisor(
     state: AgentState,
-) -> Literal["data_scientist_node", "reporter_node", "assistant_node", "travel_planner_node", "__end__"]:
+) -> Literal["data_scientist_node", "reporter_node", "assistant_node", "__end__"]:
     """主管路由：根据主管最后输出决定下一跳。"""
     messages = state.get("messages", [])
     if not messages:
@@ -43,29 +43,12 @@ def _route_after_supervisor(
     if decision == "Assistant":
         logger.info("路由 | supervisor_node -> assistant_node")
         return "assistant_node"
-    if decision == "Travel":
-        logger.info("路由 | supervisor_node -> travel_planner_node")
-        return "travel_planner_node"
 
     logger.info("路由 | supervisor_node -> END")
     return "__end__"
 
 
-def _route_after_travel_planner(
-    state: AgentState,
-) -> Literal["tools_node", "__end__"]:
-    """旅行规划师节点后路由。"""
-    messages = state.get("messages", [])
-    if not messages:
-        return "__end__"
 
-    last_message = messages[-1]
-    if isinstance(last_message, AIMessage) and last_message.tool_calls:
-        logger.info("路由 | travel_planner_node -> tools_node | tool_calls=%d", len(last_message.tool_calls))
-        return "tools_node"
-
-    logger.info("路由 | travel_planner_node -> END | reason=no_tool_calls")
-    return "__end__"
 
 
 def _route_after_data_scientist(
@@ -107,14 +90,11 @@ def _route_after_assistant(_: AgentState) -> Literal["__end__"]:
     return "__end__"
 
 
-def _route_after_tools(state: AgentState) -> Literal["data_scientist_node", "reporter_node", "travel_planner_node"]:
+def _route_after_tools(state: AgentState) -> Literal["data_scientist_node", "reporter_node"]:
     """工具节点后路由：按 sender 回到对应 Worker。"""
     sender = (state.get("sender") or "").strip()
     if sender == "Reporter":
         logger.info("路由 | tools_node -> reporter_node | sender=%s", sender)
         return "reporter_node"
-    if sender == "Travel":
-        logger.info("路由 | tools_node -> travel_planner_node | sender=%s", sender)
-        return "travel_planner_node"
     logger.info("路由 | tools_node -> data_scientist_node | sender=%s", sender or "unknown")
     return "data_scientist_node"

@@ -80,7 +80,7 @@ async def retrieve_memory_node(
 
 def _normalize_supervisor_decision(
     raw_text: str,
-) -> Literal["DataScientist", "Reporter", "Assistant", "FINISH", "Travel"]:
+) -> Literal["DataScientist", "Reporter", "Assistant", "FINISH"]:
     """将主管输出规范化为固定选项。"""
     text = raw_text.strip().replace('"', "").replace("'", "")
     upper_text = text.upper()
@@ -91,8 +91,6 @@ def _normalize_supervisor_decision(
         return "Reporter"
     if "ASSISTANT" in upper_text:
         return "Assistant"
-    if "TRAVEL" in upper_text:
-        return "Travel"
     if "FINISH" in upper_text:
         return "FINISH"
     return "FINISH"
@@ -184,7 +182,7 @@ def _trim_supervisor_decision(messages: list[BaseMessage]) -> list[BaseMessage]:
     last = messages[-1]
     if isinstance(last, AIMessage):
         decision = _normalize_supervisor_decision(_message_to_text(last))
-        if decision in {"DataScientist", "Reporter", "Assistant", "FINISH", "Travel"}:
+        if decision in {"DataScientist", "Reporter", "Assistant", "FINISH"}:
             return messages[:-1]
     return messages
 

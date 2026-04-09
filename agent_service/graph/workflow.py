@@ -26,7 +26,6 @@ from .nodes import (
     reporter_node,
     retrieve_memory_node,
     supervisor_node,
-    travel_planner_node,
 )
 from .routes import (
     _route_after_assistant,
@@ -34,7 +33,6 @@ from .routes import (
     _route_after_reporter,
     _route_after_supervisor,
     _route_after_tools,
-    _route_after_travel_planner,
 )
 from .state import AgentState
 from .tools import tools_node
@@ -101,7 +99,6 @@ def _build_workflow() -> StateGraph:
     workflow.add_node("reporter_node", reporter_node)
     workflow.add_node("assistant_node", assistant_node)
     workflow.add_node("tools_node", tools_node)
-    workflow.add_node("travel_planner_node", travel_planner_node)
 
     workflow.add_edge(START, "retrieve_memory_node")
     workflow.add_edge("retrieve_memory_node", "supervisor_node")
@@ -113,7 +110,6 @@ def _build_workflow() -> StateGraph:
             "data_scientist_node": "data_scientist_node",
             "reporter_node": "reporter_node",
             "assistant_node": "assistant_node",
-            "travel_planner_node": "travel_planner_node",
             "__end__": END,
         },
     )
@@ -121,14 +117,6 @@ def _build_workflow() -> StateGraph:
     workflow.add_conditional_edges(
         "data_scientist_node",
         _route_after_data_scientist,
-        {
-            "tools_node": "tools_node",
-            "__end__": END,
-        },
-    )
-    workflow.add_conditional_edges(
-        "travel_planner_node",
-        _route_after_travel_planner,
         {
             "tools_node": "tools_node",
             "__end__": END,
@@ -149,7 +137,6 @@ def _build_workflow() -> StateGraph:
         {
             "data_scientist_node": "data_scientist_node",
             "reporter_node": "reporter_node",
-            "travel_planner_node": "travel_planner_node",
         },
     )
 
