@@ -31,7 +31,7 @@ class FilesystemService:
             self.allowed_dirs.append(abs_path)
         logger.info(f"初始化文件系统服务，允许的目录: {self.allowed_dirs}")
 
-    def is_path_allowed(self, path: str) -> bool:
+    async def is_path_allowed(self, path: str):
         """
         检查路径是否在允许的目录中
 
@@ -48,19 +48,24 @@ class FilesystemService:
                 # 使用os.path.commonpath检查路径是否在允许的目录下
                 common_path = os.path.commonpath([abs_path, allowed_dir])
                 if common_path == allowed_dir:
-                    return True
+                    return _json_response(
+                        {
+                            "status": "success",
+                            "result": True,
+                        }
+                    )
             except ValueError:
                 # 路径在不同的驱动器上（Windows）
                 continue
 
         return False
 
-    def _ensure_path_allowed(self, path: str) -> None:
+    def _ensure_path_allowed(self, path: str):
         """确保路径被允许访问，否则抛出异常"""
         if not self.is_path_allowed(path):
             raise PermissionError(f"路径不在允许的目录中: {path}")
 
-    async def read_file(self, path: str) -> str:
+    async def read_file(self, path: str):
         """
         读取文件内容
 
@@ -90,7 +95,7 @@ class FilesystemService:
             }
         )
 
-    async def read_multiple_files(self, paths: List[str]) -> Dict[str, Any]:
+    async def read_multiple_files(self, paths: List[str]):
         """
         读取多个文件内容
 
@@ -111,7 +116,7 @@ class FilesystemService:
 
         return results
 
-    async def write_file(self, path: str, content: str) -> None:
+    async def write_file(self, path: str, content: str):
         """
         写入文件内容
 
@@ -138,7 +143,7 @@ class FilesystemService:
             }
         )
 
-    async def create_directory(self, path: str) -> None:
+    async def create_directory(self, path: str):
         """
         创建目录
 
@@ -161,7 +166,7 @@ class FilesystemService:
             }
         )
 
-    async def list_directory(self, path: str) -> List[Dict[str, Any]]:
+    async def list_directory(self, path: str):
         """
         列出目录内容
 
@@ -200,7 +205,7 @@ class FilesystemService:
             }
         )
 
-    async def move_file(self, source: str, destination: str) -> None:
+    async def move_file(self, source: str, destination: str):
         """
         移动或重命名文件/目录
 
@@ -234,7 +239,7 @@ class FilesystemService:
 
     async def search_files(
         self, path: str, pattern: str, exclude_patterns: Optional[List[str]] = None
-    ) -> List[str]:
+    ):
         """
         搜索文件
 
@@ -274,7 +279,7 @@ class FilesystemService:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, _search_sync)
 
-    async def get_file_info(self, path: str) -> Dict[str, Any]:
+    async def get_file_info(self, path: str):
         """
         获取文件/目录信息
 
@@ -306,14 +311,19 @@ class FilesystemService:
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, _get_info_sync)
 
-    def list_allowed_directories(self) -> List[str]:
+    async def list_allowed_directories(self):
         """
         返回允许访问的目录列表
 
         Returns:
             允许访问的目录列表
         """
-        return self.allowed_dirs.copy()
+        return _json_response(
+            {
+                "status": "success",
+                "result": self.allowed_dirs.copy(),
+            }
+        )
 
     async def edit_file(
         self, path: str, edits: List[Dict[str, str]], dry_run: bool = False

@@ -131,6 +131,8 @@ async def proxy_tool_call(tool_name: str, request: Request) -> dict[str, Any]:
             result = await tool_functions["move_file"](body.get("path", ""), body.get("new_path", ""))
         elif tool_name == "edit_file":
             result = await tool_functions["edit_file"](body.get("path", ""), body.get("content", ""))
+        elif tool_name == "list_allowed_directories":
+            result = await tool_functions["list_allowed_directories"]()
         else:
             return {"status": "error", "message": f"未知工具: {tool_name}"}
 

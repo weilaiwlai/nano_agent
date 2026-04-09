@@ -64,6 +64,10 @@ def register_tools(mcp: FastMCP) -> dict[str, callable]:
     async def edit_file(path: str, content: str) -> str:
         """编辑文件内容"""
         return await filesystem.edit_file(path, content)
+    @mcp.tool()
+    async def list_allowed_directories() -> str:
+        """返回允许访问的目录列表"""
+        return await filesystem.list_allowed_directories()
     # 将工具函数添加到字典中
     tools_dict["search"] = search
     tools_dict["query_database"] = query_database
@@ -75,6 +79,8 @@ def register_tools(mcp: FastMCP) -> dict[str, callable]:
     tools_dict["create_directory"] = create_directory
     tools_dict["move_file"] = move_file
     tools_dict["edit_file"] = edit_file
+    tools_dict["list_allowed_directories"] = list_allowed_directories
+    tools_dict["get_current_time"] = get_current_time
     # tools_dict["reverse_geocoding"] = reverse_geocoding
     # tools_dict["poi_search"] = poi_search
     # tools_dict["weather_query"] = weather_query
