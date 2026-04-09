@@ -155,6 +155,11 @@ class FilesystemService:
 
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, _create_sync)
+        return _json_response(
+            {
+                "status": "success",
+            }
+        )
 
     async def list_directory(self, path: str) -> List[Dict[str, Any]]:
         """
@@ -187,7 +192,13 @@ class FilesystemService:
             return sorted(items, key=lambda x: (x["type"] == "file", x["name"]))
 
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, _list_sync)
+        result= await loop.run_in_executor(None, _list_sync)
+        return _json_response(
+            {
+                "status": "success",
+                "items": result,
+            }
+        )
 
     async def move_file(self, source: str, destination: str) -> None:
         """
@@ -215,6 +226,11 @@ class FilesystemService:
 
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, _move_sync)
+        return _json_response(
+            {
+                "status": "success",
+            }
+        )
 
     async def search_files(
         self, path: str, pattern: str, exclude_patterns: Optional[List[str]] = None
@@ -363,7 +379,12 @@ class FilesystemService:
                 else:
                     result["message"] = "没有进行任何更改"
 
-            return result
+            return _json_response(
+                {
+                    "status": "success",
+                    "result": result,
+                }
+            )
 
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, _edit_sync)
