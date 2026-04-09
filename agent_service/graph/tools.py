@@ -216,6 +216,50 @@ async def tool_upsert_user_setting(
         enforced_user_id=effective_user_id,
     )
 
+@tool("tool_list_allowed_directories")
+async def tool_list_allowed_directories() -> str:
+    """获取允许的目录列表"""
+    result = await _call_mcp_tool("list_allowed_directories", {})
+    logging.info(f"获取目录 | tool=list_allowed_directories | result={result}")
+    return result
+@tool("tool_is_path_allowed")
+async def tool_is_path_allowed(path: str) -> str:
+    """检查路径是否被允许"""
+    result = await _call_mcp_tool("is_path_allowed", {"path": path})
+    logging.info(f"检查路径 | tool=is_path_allowed | path={path} | result={result}")
+    return result
+@tool("tool_read_file")
+async def tool_read_file(path: str) -> str:
+    """读取文件内容"""
+    result = await _call_mcp_tool("read_file", {"path": path})
+    logging.info(f"读取文件 | tool=read_file | path={path} | result={result}")
+    return result
+@tool("tool_write_file")
+async def tool_write_file(path: str, content: str) -> str:
+    """写入文件内容"""
+    result = await _call_mcp_tool("write_file", {"path": path, "content": content})
+    logging.info(f"写入文件 | tool=write_file | path={path} | content={content} | result={result}")
+    return result
+@tool("tool_create_directory")
+async def tool_create_directory(path: str) -> str:
+    """创建目录"""
+    result = await _call_mcp_tool("create_directory", {"path": path})
+    logging.info(f"创建目录 | tool=create_directory | path={path} | result={result}")
+    return result
+@tool("tool_move_file")
+async def tool_move_file(src: str, dst: str) -> str:
+    """移动文件"""
+    result = await _call_mcp_tool("move_file", {"src": src, "dst": dst})
+    logging.info(f"移动文件 | tool=move_file | src={src} | dst={dst} | result={result}")
+    return result
+@tool("tool_edit_file")
+async def tool_edit_file(path: str, edits: list) -> str:
+    """编辑文件内容"""
+    result = await _call_mcp_tool("edit_file", {"path": path, "edits": edits})
+    logging.info(f"编辑文件 | tool=edit_file | path={path} | edits={edits} | result={result}")
+    return result
+tools = [tool_query_database, tool_send_report, tool_upsert_user_setting, tool_get_current_time, tool_search, tool_list_allowed_directories]
++[tool_is_path_allowed, tool_read_file, tool_write_file, tool_create_directory, tool_move_file, tool_edit_file]
 
-tools = [tool_query_database, tool_send_report, tool_upsert_user_setting, tool_get_current_time, tool_search]
+
 tools_node = ToolNode(tools)

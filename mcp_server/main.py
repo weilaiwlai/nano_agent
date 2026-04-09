@@ -119,6 +119,18 @@ async def proxy_tool_call(tool_name: str, request: Request) -> dict[str, Any]:
             result = await tool_functions["get_current_time"]()
         elif tool_name == "search":
             result = await tool_functions["search"](body.get("query", ""))
+        elif tool_name == "is_path_allowed":
+            result = await tool_functions["is_path_allowed"](body.get("path", ""))
+        elif tool_name == "read_file":
+            result = await tool_functions["read_file"](body.get("path", ""))
+        elif tool_name == "write_file":
+            result = await tool_functions["write_file"](body.get("path", ""), body.get("content", ""))
+        elif tool_name == "create_directory":
+            result = await tool_functions["create_directory"](body.get("path", ""))
+        elif tool_name == "move_file":
+            result = await tool_functions["move_file"](body.get("path", ""), body.get("new_path", ""))
+        elif tool_name == "edit_file":
+            result = await tool_functions["edit_file"](body.get("path", ""), body.get("content", ""))
         else:
             return {"status": "error", "message": f"未知工具: {tool_name}"}
 
