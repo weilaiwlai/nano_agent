@@ -17,14 +17,14 @@ from .config import (
 )
 from .nodes import (
     assistant_node,
-    data_scientist_node,
+    knowledge_worker_node,
     reporter_node,
     retrieve_memory_node,
     supervisor_node,
 )
 from .routes import (
     _route_after_assistant,
-    _route_after_data_scientist,
+    _route_after_knowledge_worker,
     _route_after_reporter,
     _route_after_supervisor,
     _route_after_tools,
@@ -89,7 +89,7 @@ def _build_workflow() -> StateGraph:
     workflow = StateGraph(AgentState)
     workflow.add_node("retrieve_memory_node", retrieve_memory_node)
     workflow.add_node("supervisor_node", supervisor_node)
-    workflow.add_node("data_scientist_node", data_scientist_node)
+    workflow.add_node("knowledge_worker_node", knowledge_worker_node)
     workflow.add_node("reporter_node", reporter_node)
     workflow.add_node("assistant_node", assistant_node)
     workflow.add_node("tools_node", tools_node)
@@ -101,7 +101,7 @@ def _build_workflow() -> StateGraph:
         "supervisor_node",
         _route_after_supervisor,
         {
-            "data_scientist_node": "data_scientist_node",
+            "knowledge_worker_node": "knowledge_worker_node",
             "reporter_node": "reporter_node",
             "assistant_node": "assistant_node",
             "__end__": END,
@@ -109,8 +109,8 @@ def _build_workflow() -> StateGraph:
     )
 
     workflow.add_conditional_edges(
-        "data_scientist_node",
-        _route_after_data_scientist,
+        "knowledge_worker_node",
+        _route_after_knowledge_worker,
         {
             "tools_node": "tools_node",
             "__end__": END,
@@ -138,7 +138,7 @@ def _build_workflow() -> StateGraph:
         "tools_node",
         _route_after_tools,
         {
-            "data_scientist_node": "data_scientist_node",
+            "knowledge_worker_node": "knowledge_worker_node",
             "reporter_node": "reporter_node",
         },
     )

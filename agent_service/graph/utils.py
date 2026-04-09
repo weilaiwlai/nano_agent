@@ -317,7 +317,7 @@ def _latest_assistant_answer_before_last_user(messages: list[BaseMessage]) -> st
             continue
 
         upper_text = text.upper().replace('"', "").replace("'", "").strip()
-        if upper_text in {"DATASCIENTIST", "REPORTER", "ASSISTANT", "FINISH", "TRAVEL"}:
+        if upper_text in {"KNOWLEDGEWORKER", "REPORTER", "ASSISTANT", "FINISH", "TRAVEL"}:
             continue
 
         return text

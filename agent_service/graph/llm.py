@@ -156,7 +156,7 @@ def _get_non_stream_chat_llm(config: RunnableConfig | None) -> ChatOpenAI:
 
 def _get_bound_llm(
     config: RunnableConfig | None,
-    worker: Literal["data_scientist", "reporter", "travel_planner"],
+    worker: Literal["knowledge_worker", "reporter", "travel_planner"],
 ) -> Any:
     """获取绑定工具后的 Worker LLM。"""
     profile = _llm_profile_from_config(config)
@@ -169,7 +169,7 @@ def _get_bound_llm(
     if cached is not None:
         return cached
 
-    if worker == "data_scientist":
+    if worker == "knowledge_worker":
         bound = base_llm.bind_tools([tool_query_database, tool_get_current_time, tool_search])
     elif worker == "travel_planner":
         bound = base_llm.bind_tools([tool_get_current_time])

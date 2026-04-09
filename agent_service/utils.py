@@ -679,8 +679,8 @@ async def _stream_graph_events(
 
     active_node = ""
     emitted_worker_token = False
-    worker_nodes = {"data_scientist_node", "reporter_node", "assistant_node"}
-    broadcast_nodes = {"supervisor_node", "data_scientist_node", "reporter_node", "assistant_node"}
+    worker_nodes = {"knowledge_worker_node", "reporter_node", "assistant_node"}
+    broadcast_nodes = {"supervisor_node", "knowledge_worker_node", "reporter_node", "assistant_node"}
 
     try:
         async for event in get_app_graph().astream_events(initial_input, config=config, version="v1"):

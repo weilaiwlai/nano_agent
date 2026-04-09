@@ -21,7 +21,7 @@ from .utils import _message_to_text
 
 def _route_after_supervisor(
     state: AgentState,
-) -> Literal["data_scientist_node", "reporter_node", "assistant_node", "__end__"]:
+) -> Literal["knowledge_worker_node", "reporter_node", "assistant_node", "__end__"]:
     """主管路由：根据主管最后输出决定下一跳。"""
     messages = state.get("messages", [])
     if not messages:
@@ -34,9 +34,9 @@ def _route_after_supervisor(
         return "__end__"
 
     decision = _normalize_supervisor_decision(_message_to_text(last_message))
-    if decision == "DataScientist":
-        logger.info("路由 | supervisor_node -> data_scientist_node")
-        return "data_scientist_node"
+    if decision == "KnowledgeWorker":
+        logger.info("路由 | supervisor_node -> knowledge_worker_node")
+        return "knowledge_worker_node"
     if decision == "Reporter":
         logger.info("路由 | supervisor_node -> reporter_node")
         return "reporter_node"
@@ -51,7 +51,7 @@ def _route_after_supervisor(
 
 
 
-def _route_after_data_scientist(
+def _route_after_knowledge_worker(
     state: AgentState,
 ) -> Literal["tools_node", "__end__"]:
     """数据科学家节点后路由。"""
@@ -61,10 +61,10 @@ def _route_after_data_scientist(
 
     last_message = messages[-1]
     if isinstance(last_message, AIMessage) and last_message.tool_calls:
-        logger.info("路由 | data_scientist_node -> tools_node | tool_calls=%d", len(last_message.tool_calls))
+        logger.info("路由 | knowledge_worker_node -> tools_node | tool_calls=%d", len(last_message.tool_calls))
         return "tools_node"
 
-    logger.info("路由 | data_scientist_node -> END | reason=no_tool_calls")
+    logger.info("路由 | knowledge_worker_node -> END | reason=no_tool_calls")
     return "__end__"
 
 
@@ -90,11 +90,11 @@ def _route_after_assistant(_: AgentState) -> Literal["__end__"]:
     return "__end__"
 
 
-def _route_after_tools(state: AgentState) -> Literal["data_scientist_node", "reporter_node"]:
+def _route_after_tools(state: AgentState) -> Literal["knowledge_worker_node", "reporter_node"]:
     """工具节点后路由：按 sender 回到对应 Worker。"""
     sender = (state.get("sender") or "").strip()
     if sender == "Reporter":
         logger.info("路由 | tools_node -> reporter_node | sender=%s", sender)
         return "reporter_node"
-    logger.info("路由 | tools_node -> data_scientist_node | sender=%s", sender or "unknown")
-    return "data_scientist_node"
+    logger.info("路由 | tools_node -> knowledge_worker_node | sender=%s", sender or "unknown")
+    return "knowledge_worker_node"

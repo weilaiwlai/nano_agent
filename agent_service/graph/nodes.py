@@ -79,13 +79,14 @@ async def retrieve_memory_node(
 
 def _normalize_supervisor_decision(
     raw_text: str,
-) -> Literal["DataScientist", "Reporter", "Assistant", "FINISH"]:
+) -> Literal["KnowledgeWorker", "Reporter", "Assistant", "FINISH"]:
     """将主管输出规范化为固定选项。"""
+    logger.info("原始主管输出 | %s", raw_text)
     text = raw_text.strip().replace('"', "").replace("'", "")
     upper_text = text.upper()
 
-    if "DATASCIENTIST" in upper_text:
-        return "DataScientist"
+    if "KNOWLEDGEWORKER" in upper_text:
+        return "KnowledgeWorker"
     if "REPORTER" in upper_text:
         return "Reporter"
     if "ASSISTANT" in upper_text:
@@ -141,7 +142,7 @@ async def supervisor_node(
     state: AgentState,
     config: RunnableConfig,
 ) -> dict[str, list[BaseMessage] | str]:
-    """主管节点：语义路由到 DataScientist / Reporter / Assistant / FINISH。"""
+    """主管节点：语义路由到 KnowledgeWorker / Reporter / Assistant / FINISH。"""
     user_id = state.get("user_id", "").strip()
     history = _sanitize_history_for_model(state.get("messages", []))
     memory_context = state.get("memory_context", "")
@@ -181,11 +182,11 @@ def _trim_supervisor_decision(messages: list[BaseMessage]) -> list[BaseMessage]:
     last = messages[-1]
     if isinstance(last, AIMessage):
         decision = _normalize_supervisor_decision(_message_to_text(last))
-        if decision in {"DataScientist", "Reporter", "Assistant", "FINISH"}:
+        if decision in {"KnowledgeWorker", "Reporter", "Assistant", "FINISH"}:
             return messages[:-1]
     return messages
 
-async def data_scientist_node(
+async def knowledge_worker_node(
     state: AgentState,
     config: RunnableConfig,
 ) -> dict[str, list[BaseMessage] | str]:
@@ -196,20 +197,20 @@ async def data_scientist_node(
     latest_query = _latest_user_query(history)
 
     logger.info(
-        "节点开始 | data_scientist_node | user_id=%s | history_len=%d",
+        "节点开始 | knowledge_worker_node | user_id=%s | history_len=%d",
         user_id or "unknown",
         len(history),
     )
 
     if _has_database_intent(latest_query) and not _has_sql_snippet(latest_query):
         logger.info(
-            "节点结束 | data_scientist_node | user_id=%s | mode=db_help_without_sql",
+            "节点结束 | knowledge_worker_node | user_id=%s | mode=db_help_without_sql",
             user_id or "unknown",
         )
-        return {"messages": [AIMessage(content=_build_database_help_answer())], "sender": "DataScientist"}
+        return {"messages": [AIMessage(content=_build_database_help_answer())], "sender": "KnowledgeWorker"}
 
     system_prompt = (
-        "你是 DataScientist 智能体，负责数据分析与事实查询。\n"
+        "你是 KnowledgeWorker 智能体，负责数据分析与事实查询。\n"
         "如需读取数据库，请调用 tool_query_database；若无需查库可直接回答。\n"
         "如需查询当前时间，请调用 tool_get_current_time。\n"
         "如需查询网络信息，请调用 tool_search。\n"
@@ -223,7 +224,7 @@ async def data_scientist_node(
         "请优先参考用户长期记忆。\n\n"
         f"长期记忆上下文：\n{memory_context or '（无）'}"
     )
-    llm_runner = _get_bound_llm(config, "data_scientist")
+    llm_runner = _get_bound_llm(config, "knowledge_worker")
     model_input: list[BaseMessage] = [SystemMessage(content=system_prompt), *history]
 
     try:
@@ -231,15 +232,15 @@ async def data_scientist_node(
         response = _sanitize_ai_message_text(response)
         tool_call_count = len(response.tool_calls) if isinstance(response, AIMessage) else 0
         logger.info(
-            "节点结束 | data_scientist_node | user_id=%s | tool_calls=%d",
+            "节点结束 | knowledge_worker_node | user_id=%s | tool_calls=%d",
             user_id or "unknown",
             tool_call_count,
         )
-        return {"messages": [response], "sender": "DataScientist"}
+        return {"messages": [response], "sender": "KnowledgeWorker"}
     except Exception as exc:  # noqa: BLE001
-        logger.exception("节点异常 | data_scientist_node | user_id=%s | error=%s", user_id, exc)
+        logger.exception("节点异常 | knowledge_worker_node | user_id=%s | error=%s", user_id, exc)
         fallback = AIMessage(content="数据分析节点处理失败，请稍后重试。")
-        return {"messages": [fallback], "sender": "DataScientist"}
+        return {"messages": [fallback], "sender": "KnowledgeWorker"}
 
 
 async def reporter_node(

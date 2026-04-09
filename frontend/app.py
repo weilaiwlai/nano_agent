@@ -1065,7 +1065,7 @@ def _render_tool_events(tool_placeholder: Any, tool_events: list[dict[str, Any]]
 def _agent_tip(agent: str) -> str:
     if agent == "supervisor_node":
         return "主管节点正在思考..."
-    if agent == "data_scientist_node":
+    if agent == "knowledge_worker_node":
         return "数据科学家正在处理..."
     if agent == "reporter_node":
         return "报告专家正在处理..."
