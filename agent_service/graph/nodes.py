@@ -186,50 +186,6 @@ def _trim_supervisor_decision(messages: list[BaseMessage]) -> list[BaseMessage]:
             return messages[:-1]
     return messages
 
-
-async def travel_planner_node(
-    state: AgentState,
-    config: RunnableConfig,
-) -> dict[str, list[BaseMessage] | str]:
-    """旅行规划师节点：负责旅行计划制定与目的地信息查询。"""
-    user_id = state.get("user_id", "").strip()
-    history = _sanitize_history_for_model(_trim_supervisor_decision(state.get("messages", [])))
-    memory_context = state.get("memory_context", "")
-    latest_query = _latest_user_query(history)
-
-    logger.info(
-        "节点开始 | travel_planner_node | user_id=%s | history_len=%d",
-        user_id or "unknown",
-        len(history),
-    )
-    system_prompt = (
-        "你是 TravelPlanner 智能体，负责旅行计划制定与目的地信息查询。\n"
-        "如需查询当前时间，请调用工具tool_get_current_time。\n"
-        "如需查询旅行相关信息，请调用相关工具；若无需查询可直接回答。\n"
-        "回答应包含详细的行程安排、景点推荐、交通建议和住宿信息。\n"
-        "当用户表达旅行需求但未提供具体目的地时，请先给出旅行规划引导和建议。\n"
-        "请优先参考用户长期记忆。\n\n"
-        f"长期记忆上下文：\n{memory_context or '（无）'}"
-    )
-    llm_runner = _get_bound_llm(config, "travel_planner")
-    model_input: list[BaseMessage] = [SystemMessage(content=system_prompt), *history]
-
-    try:
-        response = await llm_runner.ainvoke(model_input, config=config)
-        response = _sanitize_ai_message_text(response)
-        tool_call_count = len(response.tool_calls) if isinstance(response, AIMessage) else 0
-        logger.info(
-            "节点结束 | travel_planner_node | user_id=%s | tool_calls=%d",
-            user_id or "unknown",
-            tool_call_count,
-        )
-        return {"messages": [response], "sender": "Travel"}
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("节点异常 | travel_planner_node | user_id=%s | error=%s", user_id, exc)
-        fallback = AIMessage(content="旅行规划节点处理失败，请稍后重试。")
-        return {"messages": [fallback], "sender": "Travel"}
-
-
 async def data_scientist_node(
     state: AgentState,
     config: RunnableConfig,
