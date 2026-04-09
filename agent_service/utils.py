@@ -33,6 +33,7 @@ from config import (
 )
 from memory import MemoryProviderError, UserMemoryManager
 from session_store import LLMSessionStore
+from graph.workflow import get_app_graph
 
 logger = logging.getLogger("nanoagent.agent_service.utils")
 
@@ -675,7 +676,6 @@ async def _stream_graph_events(
     emit_interrupt: bool,
 ) -> AsyncIterator[str]:
     """复用的图事件流 -> SSE 转换器。"""
-    import graph as graph_runtime
 
     active_node = ""
     emitted_worker_token = False
@@ -683,7 +683,7 @@ async def _stream_graph_events(
     broadcast_nodes = {"supervisor_node", "data_scientist_node", "reporter_node", "assistant_node"}
 
     try:
-        async for event in graph_runtime.get_app_graph().astream_events(initial_input, config=config, version="v1"):
+        async for event in get_app_graph().astream_events(initial_input, config=config, version="v1"):
             event_name = event.get("event", "")
             node_name = str(event.get("name", "")).strip()
 
@@ -730,7 +730,7 @@ async def _stream_graph_events(
 
         state: Any | None = None
         if emit_interrupt or not emitted_worker_token:
-            state = await graph_runtime.get_app_graph().aget_state(config)
+            state = await get_app_graph().aget_state(config)
 
         if emit_interrupt and state is not None:
             if _is_waiting_for_tools_node(state):

@@ -17,7 +17,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-import graph as graph_runtime
+from graph import init as graph_runtime
 from session_store import LLMSessionStore
 
 from config import (

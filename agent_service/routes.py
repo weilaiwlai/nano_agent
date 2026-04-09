@@ -10,6 +10,8 @@ from fastapi import Depends, FastAPI, HTTPException, Path, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.requests import Request
+from auth import _resolve_effective_user_id
+from graph.workflow import get_app_graph
 
 from auth import (
     AuthContext,
@@ -25,24 +27,19 @@ from config import (
 from utils import (
     _all_pending_tool_calls_are_send_report,
     _build_reject_tool_messages,
-    _extract_final_ai_answer_text,
     _extract_pending_tool_calls,
     _get_memory_manager,
     _graph_config,
     _is_email_delivery_query,
-    _is_production_environment,
     _is_waiting_for_tools_node,
-    _normalize_base_url,
     _normalize_provider,
     _resolve_base_url_for_provider,
     _resolve_embedding_model_for_provider,
     _resolve_llm_profile,
     _safe_error_text,
-    _sanitize_stream_token_text,
     _stream_graph_events,
     _stream_pending_interrupt_only,
     _stream_resume_no_pending,
-    _to_sse,
     _try_auto_save_memory,
     _validate_llm_profile_connectivity,
 )
@@ -380,8 +377,6 @@ def register_routes(app: FastAPI, session_store: Any, session_store_ready: bool)
         auth_context: AuthContext = Depends(_require_user_context),
     ) -> StreamingResponse:
         """以 SSE 流式方式执行 NanoAgent 图并实时返回 token。"""
-        from auth import _resolve_effective_user_id
-        import graph as graph_runtime
 
         token_subject = _require_subject(auth_context)
         user_id = _resolve_effective_user_id(
@@ -397,14 +392,14 @@ def register_routes(app: FastAPI, session_store: Any, session_store_ready: bool)
         config = _graph_config(user_id, llm_profile)
 
         try:
-            pending_state = await graph_runtime.get_app_graph().aget_state(config)
+            pending_state = await get_app_graph().aget_state(config)
             if _is_waiting_for_tools_node(pending_state):
                 pending_tool_calls = _extract_pending_tool_calls(pending_state)
                 if pending_tool_calls:
                     if _all_pending_tool_calls_are_send_report(pending_tool_calls) and not _is_email_delivery_query(query):
                         reject_messages = _build_reject_tool_messages(pending_tool_calls)
                         if reject_messages:
-                            await graph_runtime.get_app_graph().aupdate_state(
+                            await get_app_graph().aupdate_state(
                                 config,
                                 {"messages": reject_messages},
                                 as_node="tools_node",
@@ -470,7 +465,7 @@ def register_routes(app: FastAPI, session_store: Any, session_store_ready: bool)
     ) -> StreamingResponse:
         """对已中断的工具调用进行审批并恢复执行。"""
         from auth import _resolve_effective_user_id
-        import graph as graph_runtime
+        import agent_service.graph.graph as graph_runtime
 
         token_subject = _require_subject(auth_context)
         user_id = _resolve_effective_user_id(
