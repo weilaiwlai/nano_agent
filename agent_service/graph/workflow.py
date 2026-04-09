@@ -139,7 +139,6 @@ def _build_workflow() -> StateGraph:
             "reporter_node": "reporter_node",
         },
     )
-
     return workflow
 
 

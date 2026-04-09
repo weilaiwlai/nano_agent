@@ -12,6 +12,8 @@ import json
 import asyncio
 import logging
 from seacrch import search_tool
+from filesystem_service import FilesystemService
+
 
 
 def register_tools(mcp: FastMCP) -> dict[str, callable]:
@@ -32,16 +34,47 @@ def register_tools(mcp: FastMCP) -> dict[str, callable]:
     async def upsert_user_setting(user_id: str, setting_key: str, setting_value: str) -> str:
         """受控写工具：仅允许更新白名单用户设置键。"""
         return await upsert_user_setting_tool(user_id, setting_key, setting_value)
+    
+    @mcp.tool()
     async def search(query: str) -> str:
         """网络搜索关键字查询信息"""
         return await search_tool(query)
-           
+    filesystem = FilesystemService(['D:/nano_agent/agentdata'])
+    @mcp.tool()
+    async def is_path_allowed(path: str) -> str:
+        """检查路径是否被允许"""
+        return await filesystem.is_path_allowed(path)
+    @mcp.tool()
+    async def read_file(path: str) -> str:
+        """读取文件内容"""
+        return await filesystem.read_file(path)
+    @mcp.tool()
+    async def write_file(path: str, content: str) -> str:
+        """写入文件内容"""
+        return await filesystem.write_file(path, content)
+    @mcp.tool()
+    async def create_directory(path: str) -> str:
+        """创建目录"""
+        return await filesystem.create_directory(path)
+    @mcp.tool()
+    async def move_file(path: str, new_path: str) -> str:
+        """移动文件"""
+        return await filesystem.move_file(path, new_path)
+    @mcp.tool()
+    async def edit_file(path: str, content: str) -> str:
+        """编辑文件内容"""
+        return await filesystem.edit_file(path, content)
     # 将工具函数添加到字典中
     tools_dict["search"] = search
     tools_dict["query_database"] = query_database
     tools_dict["send_report"] = send_report
     tools_dict["upsert_user_setting"] = upsert_user_setting
-    # tools_dict["geocoding"] = geocoding
+    tools_dict["is_path_allowed"] = is_path_allowed
+    tools_dict["read_file"] = read_file
+    tools_dict["write_file"] = write_file
+    tools_dict["create_directory"] = create_directory
+    tools_dict["move_file"] = move_file
+    tools_dict["edit_file"] = edit_file
     # tools_dict["reverse_geocoding"] = reverse_geocoding
     # tools_dict["poi_search"] = poi_search
     # tools_dict["weather_query"] = weather_query

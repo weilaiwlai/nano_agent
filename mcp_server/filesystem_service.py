@@ -7,7 +7,7 @@ import os
 import shutil
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-
+from utils import _json_response
 logger = logging.getLogger(__name__)
 
 
@@ -82,7 +82,13 @@ class FilesystemService:
                 return f.read()
 
         loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, _read_sync)
+        content = await loop.run_in_executor(None, _read_sync)
+        return _json_response(
+            {
+                "status": "success",
+                "content": content,
+            }
+        )
 
     async def read_multiple_files(self, paths: List[str]) -> Dict[str, Any]:
         """
@@ -126,6 +132,11 @@ class FilesystemService:
 
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, _write_sync)
+        return _json_response(
+            {
+                "status": "success",
+            }
+        )
 
     async def create_directory(self, path: str) -> None:
         """
