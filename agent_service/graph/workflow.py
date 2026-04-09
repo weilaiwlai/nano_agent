@@ -12,7 +12,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from .config import (
-    GRAPH_CHECKPOINTER_ALLOW_MEMORY_FALLBACK,
+    GRAPH_CHECKPOINTER_ALLOW_MEMORY_FALLBACK,  #
     GRAPH_CHECKPOINTER_BACKEND,
     GRAPH_CHECKPOINTER_POSTGRES_URL,
     GRAPH_CHECKPOINTER_PREFIX,

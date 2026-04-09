@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Any, Literal
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 
+from .tools import tool_query_database, tool_get_current_time, tool_search, tool_upsert_user_setting
+
 from .config import (
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_OPENAI_API_KEY,
@@ -168,13 +170,10 @@ def _get_bound_llm(
         return cached
 
     if worker == "data_scientist":
-        from tools import tool_query_database, tool_get_current_time, tool_search
         bound = base_llm.bind_tools([tool_query_database, tool_get_current_time, tool_search])
     elif worker == "travel_planner":
-        from tools import tool_get_current_time
         bound = base_llm.bind_tools([tool_get_current_time])
     else:
-        from tools import tool_upsert_user_setting
         bound = base_llm.bind_tools([tool_upsert_user_setting])
 
     _bound_llm_cache[cache_key] = bound
