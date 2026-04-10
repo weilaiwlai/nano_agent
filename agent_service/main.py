@@ -34,7 +34,7 @@ from config import (
 )
 from utils import _is_production_environment
 from routes import register_routes
-
+import uvicorn
 if not logging.getLogger().handlers:
     logging.basicConfig(
         level=os.getenv("LOG_LEVEL", "INFO").upper(),
@@ -110,3 +110,17 @@ app.add_middleware(
 )
 
 register_routes(app, _session_store, _session_store_ready)
+
+
+if __name__ == "__main__":
+    host = os.getenv("AGENT_HOST", "0.0.0.0")
+    port = int(os.getenv("AGENT_PORT", "8080"))
+    debug = os.getenv("DEBUG", "false").lower() == "true"
+    
+    print(f"🚀 启动智能体服务: http://{host}:{port}")
+    print(f"📊 调试模式: {debug}")
+    print("💡 健康检查: http://localhost:8080/health")
+    print("🔧 MCP服务连接: http://localhost:8000")
+    print("-" * 50)
+    
+    uvicorn.run(app, host=host, port=port, reload=debug, loop=asyncio.SelectorEventLoop)
