@@ -1,14 +1,12 @@
-﻿"""NanoAgent 主服务的 FastAPI 入口。
+﻿from __future__ import annotations
 
-提供：
-- 服务健康检查与 MCP 上游检查
-- 基于 LangGraph 的流式聊天接口（SSE）
-- 人机协同审批（HITL）恢复接口
-- 长期记忆写入、查看、删除接口
-"""
+import sys
+import asyncio
 
-from __future__ import annotations
-
+# Windows 兼容性修复
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    
 from contextlib import asynccontextmanager
 import logging
 import os

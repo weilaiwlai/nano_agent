@@ -1,8 +1,3 @@
-"""NanoAgent 状态定义模块。
-
-定义工作流中的状态结构和类型。
-"""
-
 from __future__ import annotations
 
 from typing import Annotated
