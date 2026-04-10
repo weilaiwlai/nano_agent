@@ -1,8 +1,3 @@
-"""NanoAgent 工具函数模块。
-
-包含日志、消息处理、文本处理等辅助函数。
-"""
-
 from __future__ import annotations
 
 import hashlib
@@ -317,7 +312,7 @@ def _latest_assistant_answer_before_last_user(messages: list[BaseMessage]) -> st
             continue
 
         upper_text = text.upper().replace('"', "").replace("'", "").strip()
-        if upper_text in {"KNOWLEDGEWORKER", "REPORTER", "ASSISTANT", "FINISH", "TRAVEL"}:
+        if upper_text in {"KNOWLEDGEWORKER", "REPORTER", "ASSISTANT", "FINISH"}:
             continue
 
         return text

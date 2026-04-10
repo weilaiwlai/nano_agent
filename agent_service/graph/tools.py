@@ -1,8 +1,3 @@
-"""NanoAgent 工具定义模块。
-
-定义所有 LangChain 工具和 MCP 工具调用逻辑。
-"""
-
 from __future__ import annotations
 
 import json
@@ -258,6 +253,7 @@ async def tool_edit_file(path: str, edits: list) -> str:
     result = await _call_mcp_tool("edit_file", {"path": path, "edits": edits})
     logging.info(f"编辑文件 | tool=edit_file | path={path} | edits={edits} | result={result}")
     return result
+
 tools = [tool_query_database, tool_send_report, tool_upsert_user_setting, tool_get_current_time, tool_search, tool_list_allowed_directories,
          tool_is_path_allowed, tool_read_file, tool_write_file, tool_create_directory, tool_move_file, tool_edit_file]
 tools_node = ToolNode(tools)

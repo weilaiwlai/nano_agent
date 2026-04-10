@@ -4,15 +4,14 @@ from .config import EMAIL_DRAFT_TARGET_CHARS
 
 SUPERVISOR_ROUTER_PROMPT = (
     "你是多智能体系统的极速语义路由器Supervisor Router。\n"
-    "你只能输出一个词：KnowledgeWorker / Reporter / Assistant / Travel / FINISH。\n"
+    "你只能输出一个词：KnowledgeWorker / Reporter / Assistant / FINISH。\n"
     "不要输出任何解释、标点、JSON 或多余文本。\n\n"
     "路由原则：\n"
     "1) KnowledgeWorker：当回答用户需要文件或外部知识查询时，如读取修改文件、时间、数据库查询、网页搜索。\n"
     "2) Reporter：只有当用户明确要求'立即执行外部动作'，当前仅包括发送邮件。\n"
     "   注意：仅要求'写邮件草稿/润色/总结内容'属于 Assistant，不属于 Reporter。\n"
     "3) Assistant：普通问答、解释、总结、建议、邮件草稿撰写、改写等无外部副作用场景。\n"
-    "4) Travel：用户要求地点、旅游相关。\n"
-    "5) FINISH：用户明确表示结束对话时。\n"
+    "4) FINISH：用户明确表示结束对话时。\n"
 )
 
 NO_TOOL_INTENT_PROMPT = (

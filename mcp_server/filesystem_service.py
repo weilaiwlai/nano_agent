@@ -25,7 +25,6 @@ class FilesystemService:
         if not allowed_dirs:
             raise ValueError("至少需要指定一个允许的目录")
 
-        # 标准化路径并确保是绝对路径
         self.allowed_dirs = []
         for dir_path in allowed_dirs:
             abs_path = os.path.abspath(dir_path)
@@ -40,29 +39,21 @@ class FilesystemService:
             path: 要检查的路径
 
         Returns:
-            是否允许访问该路径
+            是否允许访问该路径的JSON字符串
         """
         abs_path = os.path.abspath(path)
 
         for allowed_dir in self.allowed_dirs:
             try:
-                # 使用os.path.commonpath检查路径是否在允许的目录下
                 common_path = os.path.commonpath([abs_path, allowed_dir])
                 if common_path == allowed_dir:
-                    return _json_response(
-                        {
-                            "status": "success",
-                            "result": True,
-                        }
-                    )
+                    return _json_response({"allowed": True})
             except ValueError:
-                # 路径在不同的驱动器上（Windows）
                 continue
 
-        return False
+        return _json_response({"allowed": False})
 
     async def _ensure_path_allowed(self, path: str):
-        """确保路径被允许访问，否则记录日志"""
         is_allowed_result = await self.is_path_allowed(path)
         try:
             allowed_data = json.loads(is_allowed_result)
@@ -136,10 +127,24 @@ class FilesystemService:
         Raises:
             PermissionError: 路径不被允许
         """
+        if not self.allowed_dirs:
+            return _json_response({"status": "error", "message": "路径只有文件名但无默认路径可用"})
+        
+        if not path or not path.strip():
+            import uuid
+            default_dir = self.allowed_dirs[0]
+            filename = f"auto_generated_{uuid.uuid4().hex[:8]}.txt"
+            path = os.path.join(default_dir, filename)
+        elif not os.path.dirname(path) or os.path.dirname(path) == ".":
+            default_dir = self.allowed_dirs[0]
+            path = os.path.join(default_dir, path)
+         
         await self._ensure_path_allowed(path)
 
         def _write_sync():
-            os.makedirs(os.path.dirname(path), exist_ok=True)
+            dir_path = os.path.dirname(path)
+            if dir_path: 
+                os.makedirs(dir_path, exist_ok=True)
             with open(path, "w", encoding="utf-8") as f:
                 f.write(content)
 
@@ -233,7 +238,6 @@ class FilesystemService:
             if os.path.exists(destination):
                 raise FileExistsError(f"目标路径已存在: {destination}")
 
-            # 确保目标目录存在
             os.makedirs(os.path.dirname(destination), exist_ok=True)
             shutil.move(source, destination)
 
@@ -269,7 +273,6 @@ class FilesystemService:
             search_pattern = os.path.join(path, "**", pattern)
 
             for match in glob.glob(search_pattern, recursive=True):
-                # 检查是否应该排除
                 should_exclude = False
                 if exclude_patterns:
                     for exclude_pattern in exclude_patterns:
@@ -354,14 +357,12 @@ class FilesystemService:
         await self._ensure_path_allowed(path)
 
         def _edit_sync():
-            # 读取原始内容
             with open(path, "r", encoding="utf-8") as f:
                 original_content = f.read()
 
             modified_content = original_content
             changes_made = []
 
-            # 应用编辑操作
             for edit in edits:
                 old_text = edit.get("oldText", "")
                 new_text = edit.get("newText", "")
@@ -389,7 +390,6 @@ class FilesystemService:
             if dry_run:
                 result["preview"] = modified_content
             else:
-                # 实际写入文件
                 if modified_content != original_content:
                     with open(path, "w", encoding="utf-8") as f:
                         f.write(modified_content)
