@@ -4,6 +4,7 @@
 import os
 import uvicorn
 from dotenv import load_dotenv
+import asyncio
 
 # 加载环境变量
 load_dotenv('../.env')
@@ -19,4 +20,4 @@ if __name__ == "__main__":
     print("🔧 MCP服务连接: http://localhost:8000")
     print("-" * 50)
     
-    uvicorn.run("main:app", host=host, port=port, reload=debug)
+    uvicorn.run("main:app", host=host, port=port, reload=debug,loop=asyncio.SelectorEventLoop)
