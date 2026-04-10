@@ -80,7 +80,6 @@ async def service_auth_middleware(request: Request, call_next):
     return response
 
 tool_functions = register_tools(mcp)
-logging.info(f"工具注册完成: {tool_functions}")
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "service": "mcp_server"}
