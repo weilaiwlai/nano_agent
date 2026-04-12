@@ -1,15 +1,9 @@
 ﻿from __future__ import annotations
-
-import sys
-import asyncio
-
-# Windows 兼容性修复
-if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    
+  
 from contextlib import asynccontextmanager
 import logging
 import os
+import asyncio
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
