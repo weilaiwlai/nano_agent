@@ -21,6 +21,7 @@ from .nodes import (
     reporter_node,
     retrieve_memory_node,
     supervisor_node,
+    skills_tools_node,
 )
 from .routes import (
     _route_after_assistant,
@@ -28,9 +29,12 @@ from .routes import (
     _route_after_reporter,
     _route_after_supervisor,
     _route_after_tools,
+    _route_after_skills_tools,
 )
 from .state import AgentState
 from .tools import tools_node
+from langgraph.prebuilt import ToolNode
+from .skills.tools import DEFAULT_TOOLS
 
 app_graph = _graph_runtime_globals["app_graph"]
 _checkpointer_cm = _graph_runtime_globals["_checkpointer_cm"]
@@ -93,6 +97,8 @@ def _build_workflow() -> StateGraph:
     workflow.add_node("reporter_node", reporter_node)
     workflow.add_node("assistant_node", assistant_node)
     workflow.add_node("tools_node", tools_node)
+    workflow.add_node("skills_tools_node", skills_tools_node)
+    workflow.add_node("skill_tools", ToolNode(DEFAULT_TOOLS))
 
     workflow.add_edge(START, "retrieve_memory_node")
     workflow.add_edge("retrieve_memory_node", "supervisor_node")
@@ -130,6 +136,7 @@ def _build_workflow() -> StateGraph:
         "assistant_node",
         _route_after_assistant,
         {
+            "skills_tools_node": "skills_tools_node",
             "__end__": END,
         },
     )
@@ -139,9 +146,18 @@ def _build_workflow() -> StateGraph:
         _route_after_tools,
         {
             "knowledge_worker_node": "knowledge_worker_node",
-            "reporter_node": "reporter_node",
         },
     )
+
+    workflow.add_edge("skills_tools_node", "skill_tools")  
+    workflow.add_conditional_edges(
+        "skill_tools",
+        _route_after_skills_tools,
+        {
+            "assistant_node": "assistant_node",
+        },
+    )
+
     return workflow
 
 

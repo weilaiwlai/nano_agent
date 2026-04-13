@@ -1,10 +1,4 @@
-﻿"""NanoAgent 长期记忆模块。
-
-该模块使用 ChromaDB 保存用户偏好向量，并按语义检索相关记忆片段，
-用于后续注入到模型提示词中。
-"""
-
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import hashlib
 import logging

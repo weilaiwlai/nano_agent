@@ -48,9 +48,6 @@ def _route_after_supervisor(
     return "__end__"
 
 
-
-
-
 def _route_after_knowledge_worker(
     state: AgentState,
 ) -> Literal["tools_node", "__end__"]:
@@ -85,8 +82,33 @@ def _route_after_reporter(
     return "__end__"
 
 
-def _route_after_assistant(_: AgentState) -> Literal["__end__"]:
-    """Assistant 节点后路由：本轮回答完成后直接结束，避免无效循环。"""
+def _route_after_assistant(state: AgentState) -> Literal["skills_tools_node", "__end__"]:
+    """Assistant 节点后路由：如果有工具调用或skill名称则进入技能工具节点，否则结束。"""
+    messages = state.get("messages", [])
+    if not messages:
+        return "__end__"
+
+    last_message = messages[-1]
+    
+    # 检查是否有工具调用
+    if isinstance(last_message, AIMessage) and last_message.tool_calls:
+        logger.info("路由 | assistant_node -> skills_tools_node | tool_calls=%d", len(last_message.tool_calls))
+        return "skills_tools_node"
+    
+    # 检查是否是skill名称（文本内容）
+    if isinstance(last_message, AIMessage):
+        content = last_message.content.strip()
+        # 检查内容是否是有效的skill名称
+        from .skills.loader import SkillRegistry
+        registry = SkillRegistry()
+        skills = registry.list_skills()
+        skill_names = [s["name"] for s in skills]
+        
+        if content in skill_names:
+            logger.info("路由 | assistant_node -> skills_tools_node | skill_name=%s", content)
+            return "skills_tools_node"
+
+    logger.info("路由 | assistant_node -> END | reason=no_tool_calls_or_skill_name")
     return "__end__"
 
 
@@ -98,3 +120,9 @@ def _route_after_tools(state: AgentState) -> Literal["knowledge_worker_node", "r
         return "reporter_node"
     logger.info("路由 | tools_node -> knowledge_worker_node | sender=%s", sender or "unknown")
     return "knowledge_worker_node"
+
+def _route_after_skills_tools(state: AgentState) -> Literal["assistant_node"]:
+    """工具节点后路由：按 sender 回到 Assistant 节点。"""
+    sender = (state.get("sender") or "").strip()
+    logger.info("路由 | skills_tools_node -> assistant_node | sender=%s", sender or "unknown")
+    return "assistant_node"

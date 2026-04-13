@@ -34,6 +34,8 @@ from .utils import (
     _sanitize_history_for_model,
     _strip_dsml_control_tokens,
 )
+from .skills.loader import SkillRegistry
+from .skills.tools import DEFAULT_TOOLS, set_active_path
 
 
 async def retrieve_memory_node(
@@ -327,12 +329,12 @@ async def reporter_node(
         logger.exception("节点异常 | reporter_node | user_id=%s | error=%s", user_id, exc)
         return {"messages": [AIMessage(content="报告执行节点处理失败，请稍后重试。")], "sender": "Reporter"}
 
-
+registry = SkillRegistry() 
 async def assistant_node(
     state: AgentState,
     config: RunnableConfig,
 ) -> dict[str, list[BaseMessage] | str]:
-    """Assistant 节点：负责一般对话生成，不调用数据库和邮件工具。"""
+    """Assistant 节点：负责一般对话生成，可以使用所有skill工具。"""
     user_id = state.get("user_id", "").strip()
     history = _sanitize_history_for_model(_trim_supervisor_decision(state.get("messages", [])))
     memory_context = state.get("memory_context", "")
@@ -343,10 +345,24 @@ async def assistant_node(
         len(history),
     )
 
+    registry.refresh()
+    skills = registry.list_skills()
+    if not skills:
+        logger.info("当前没有可用的技能")
+    else:
+        logger.info("当前可用技能列表：%s", ", ".join([s["name"] for s in skills]))
+
+    skill_list_str = "\n".join([f"- {s['name']}: {s['description']}" for s in skills])
+
     system_prompt = (
         f"{NO_TOOL_INTENT_PROMPT}\n"
-        "当用户提出'发邮件'诉求时，先生成可审阅草稿，不要直接执行发送。\n"
-        "回答要自然、直接、可执行。\n\n"
+        "你是一个智能助手，拥有专业的技能团队来帮助你解决问题。\n\n"
+        f"可用的专家技能团队：\n{skill_list_str}\n\n"
+        "重要规则：\n"
+        "1. 当用户的问题适合使用特定技能时，必须只返回要激活的技能的确切名称，不要包含任何其他文字。\n"
+        "2. 例如：如果需要旅行规划技能，只返回'travel-planning'，不要返回'生成的是 travel-planning'或类似文本。\n"
+        "3. 如果不需要特定技能，请直接回答用户的问题。\n\n"
+        "当用户提出'发邮件'诉求时，先生成可审阅草稿，不要直接执行发送\n\n"
         f"长期记忆上下文：\n{memory_context or '（无）'}"
     )
     model_input: list[BaseMessage] = [SystemMessage(content=system_prompt), *history]
@@ -360,3 +376,59 @@ async def assistant_node(
         logger.exception("节点异常 | assistant_node | user_id=%s | error=%s", user_id, exc)
         fallback = AIMessage(content="助手节点处理失败，请稍后重试。")
         return {"messages": [fallback], "sender": "Assistant"}
+
+async def skills_tools_node(state: AgentState, config: RunnableConfig) -> dict[str, list[BaseMessage] | str]:
+    skill_name = state["messages"][-1].content.strip() if state.get("messages") else None
+    skill = registry.get_skill(skill_name)
+    
+    logger.info(
+        "节点开始 | skills_tools_node | skill=%s",
+        skill_name or "none",
+    )
+
+    system_text = "You are a helpful AI assistant."
+    if skill:
+        set_active_path(skill.root_path)
+        
+        system_text += f"\n\n=== ACTIVE SKILL: {skill.name} ===\n{skill.instructions}"
+        
+        ref_dir = skill.root_path / "references"
+        if ref_dir.exists():
+            files = [f.name for f in ref_dir.glob("*") if f.is_file() and not f.name.startswith(".")]
+            if files:
+                system_text += "\n\n=== AVAILABLE REFERENCES (Knowledge Base) ===\n"
+                system_text += "You have access to the following files in the 'references' folder:\n"
+                for f in files:
+                    system_text += f"- {f}\n"
+                system_text += "Use the `read_reference` tool to read their content if needed.\n"
+        
+        logger.debug(f"Injecting instructions for {skill.name}")
+    else:
+        set_active_path(None)
+
+    try:
+        llm = _get_chat_llm(config)
+        model = llm.bind_tools(DEFAULT_TOOLS)
+        full_messages = [SystemMessage(content=system_text)] + state["messages"]
+        print(full_messages)
+        
+        logger.debug("Invoking LLM...")
+        response = await model.ainvoke(full_messages)
+        
+        if response.tool_calls:
+            logger.info(f"🛠️ Agent requested tools: {response.tool_calls}")
+        else:
+            logger.info("🗣️ Agent responded with text.")
+            
+        logger.info(
+            "节点结束 | skills_tools_node | skill=%s | tool_calls=%d",
+            skill_name or "none",
+            len(response.tool_calls) if response.tool_calls else 0,
+        )
+        
+        return {"messages": [response]}
+        
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("节点异常 | skills_tools_node | skill=%s | error=%s", skill_name, exc)
+        fallback = AIMessage(content="Skills工具节点处理失败，请稍后重试。")
+        return {"messages": [fallback]}
