@@ -7,6 +7,7 @@ import logging
 import os
 import re
 from typing import Any, AsyncIterator
+import uuid
 
 from fastapi import HTTPException
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -498,11 +499,12 @@ def _sanitize_stream_token_text(token_text: str) -> str:
     return cleaned
 
 
-def _graph_config(user_id: str, llm_profile: dict[str, str]) -> dict[str, Any]:
+def _graph_config(user_id: str, llm_profile: dict[str, str], thread_id: str) -> dict[str, Any]:
     """构建图执行配置。"""
+    logger.info("创建新对话：当前thread_id=%s", f"{thread_id}")
     return {
         "configurable": {
-            "thread_id": user_id,
+            "thread_id": thread_id,
             "user_id": user_id,
             "llm_api_key": llm_profile["api_key"],
             "llm_base_url": llm_profile["base_url"],

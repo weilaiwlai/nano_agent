@@ -56,6 +56,7 @@ class ChatRequest(BaseModel):
     user_id: str = Field(..., min_length=1)
     query: str = Field(..., min_length=1)
     session_id: str | None = Field(default=None, min_length=8)
+    thread_id: str | None = Field(default=None, min_length=1)
 
 
 class ChatResumeRequest(BaseModel):
@@ -64,6 +65,7 @@ class ChatResumeRequest(BaseModel):
     user_id: str = Field(..., min_length=1)
     action: Literal["approve", "reject"]
     session_id: str | None = Field(default=None, min_length=8)
+    thread_id: str | None = Field(default=None, min_length=1)
 
 
 class MemoryRequest(BaseModel):
@@ -389,9 +391,11 @@ def register_routes(app: FastAPI, session_store: Any, session_store_ready: bool)
         query = request.query.strip()
         llm_profile = await _resolve_llm_profile(request.session_id, owner_id=user_id, session_store=session_store, session_store_ready=session_store_ready)
 
-        logger.info("收到流式聊天请求 | user_id=%s | query_len=%d", user_id, len(query))
-
-        config = _graph_config(user_id, llm_profile)
+        logger.info("收到流式聊天请求 | user_id=%s | query_len=%d | thread_id=%s", user_id, len(query), request.thread_id or "")
+        if request.thread_id:
+            config = _graph_config(user_id, llm_profile, thread_id=request.thread_id)
+        else:
+            config = _graph_config(user_id, llm_profile, thread_id=user_id)
 
         try:
             pending_state = await get_app_graph().aget_state(config)
@@ -474,7 +478,10 @@ def register_routes(app: FastAPI, session_store: Any, session_store_ready: bool)
         )
         action = request.action
         llm_profile = await _resolve_llm_profile(request.session_id, owner_id=user_id, session_store=session_store, session_store_ready=session_store_ready)
-        config = _graph_config(user_id, llm_profile)
+        if request.thread_id:
+            config = _graph_config(user_id, llm_profile, thread_id=request.thread_id)
+        else:
+            config = _graph_config(user_id, llm_profile, thread_id=user_id)
 
         logger.info("收到审批续跑请求 | user_id=%s | action=%s", user_id, action)
 

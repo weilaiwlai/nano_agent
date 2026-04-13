@@ -253,10 +253,12 @@ def _active_session_id() -> str | None:
     return None
 
 
-def stream_chat_api(user_id: str, query: str, session_id: str | None = None) -> Iterator[dict[str, Any]]:
+def stream_chat_api(user_id: str, query: str, session_id: str | None = None,thread_id: str | None = None) -> Iterator[dict[str, Any]]:
     payload: dict[str, Any] = {"user_id": user_id, "query": query}
     if session_id and session_id.strip():
         payload["session_id"] = session_id.strip()
+    if thread_id and thread_id.strip():
+        payload["thread_id"] = thread_id.strip()
     with requests.post(
         CHAT_ENDPOINT,
         json=payload,
@@ -336,12 +338,18 @@ def delete_llm_session_api(session_id: str) -> dict[str, Any]:
 
 def init_session_state() -> None:
     default_user_id = AGENT_TOKEN_SUB or "user_001"
+    import uuid
+    default_conversation_id = f"conv_{str(uuid.uuid4())[:8]}"
     if "user_id" not in st.session_state:
         st.session_state.user_id = default_user_id
     elif AGENT_TOKEN_SUB:
         st.session_state.user_id = AGENT_TOKEN_SUB
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
+    if "conversations" not in st.session_state:
+        # 初始化对话字典，key为conversation_id，value为消息列表
+        st.session_state.conversations = {f"{default_conversation_id}": []}
+    if "current_conversation_id" not in st.session_state:
+        # 当前激活的对话ID
+        st.session_state.current_conversation_id = default_conversation_id
     if "pending_interrupt" not in st.session_state:
         st.session_state.pending_interrupt = False
     if "pending_tool_calls" not in st.session_state:
@@ -418,6 +426,33 @@ def init_session_state() -> None:
         st.session_state.llm_validation_result = None
     if "clear_llm_api_key_next_run" not in st.session_state:
         st.session_state.clear_llm_api_key_next_run = False
+
+
+def switch_conversation(conversation_id: str) -> None:
+    """切换到指定对话"""
+    st.session_state.current_conversation_id = conversation_id
+    st.session_state.messages = st.session_state.conversations[conversation_id]
+
+
+def new_conversation() -> None:
+    """创建新对话"""
+    import uuid
+    conversation_id = f"conv_{str(uuid.uuid4())[:8]}"
+    st.session_state.conversations[conversation_id] = []
+    switch_conversation(conversation_id)
+
+
+def delete_conversation(conversation_id: str) -> None:
+    """删除指定对话"""
+    if conversation_id in st.session_state.conversations:
+        del st.session_state.conversations[conversation_id]
+        # 如果删除的是当前对话，则切换到第一个可用对话
+        if st.session_state.current_conversation_id == conversation_id:
+            available_convs = list(st.session_state.conversations.keys())
+            if available_convs:
+                switch_conversation(available_convs[0])
+            else:
+                new_conversation()
 
 
 def _normalize_tool_calls(raw_tool_calls: Any) -> list[dict[str, Any]]:
@@ -514,6 +549,7 @@ def _chat_stream_worker(
     user_id: str,
     query: str,
     session_id: str | None,
+    thread_id: str | None,
     event_queue: "queue.Queue[dict[str, Any]]",
     stop_event: threading.Event,
 ) -> None:
@@ -521,6 +557,8 @@ def _chat_stream_worker(
     payload: dict[str, Any] = {"user_id": user_id, "query": query}
     if session_id and session_id.strip():
         payload["session_id"] = session_id.strip()
+    if thread_id and thread_id.strip():
+        payload["thread_id"] = thread_id.strip()
 
     stopped = False
     try:
@@ -549,11 +587,13 @@ def _chat_stream_worker(
 
 def _start_chat_stream(user_id: str, query: str) -> None:
     """启动后台流式生成线程。"""
+    import uuid
+    thread_id = f"{user_id}_{st.session_state.current_conversation_id}"    
     event_queue: "queue.Queue[dict[str, Any]]" = queue.Queue()
     stop_event = threading.Event()
     worker = threading.Thread(
         target=_chat_stream_worker,
-        args=(user_id, query, _active_session_id(), event_queue, stop_event),
+        args=(user_id, query, _active_session_id(), thread_id,event_queue, stop_event),
         daemon=True,
         name="nanoagent_chat_stream",
     )
@@ -592,9 +632,16 @@ def _finalize_chat_stream() -> None:
         else:
             full_answer = "后端未返回内容。"
 
-    st.session_state.messages.append(
+    # 将助手回复添加到当前对话
+    current_conv_id = st.session_state.current_conversation_id
+    if current_conv_id not in st.session_state.conversations:
+        st.session_state.conversations[current_conv_id] = []
+    st.session_state.conversations[current_conv_id].append(
         {"role": "assistant", "content": full_answer, "tool_calls": tool_events or None}
     )
+    
+    # 同步到messages变量
+    st.session_state.messages = st.session_state.conversations[current_conv_id]
 
     if not interrupted:
         _clear_pending_interrupt()
@@ -962,6 +1009,51 @@ def render_sidebar() -> str:
             st.caption("当前为手动用户 ID 模式（仅用于本地调试）。")
 
         st.markdown("---")
+        with st.expander("对话管理", expanded=True):
+            # 对话管理UI
+            st.write("**对话管理**")
+            
+            # 创建新对话按钮
+            if st.button("新建对话", use_container_width=True):
+                new_conversation()
+                st.rerun()
+            
+            # 显示对话列表
+            conversation_ids = list(st.session_state.conversations.keys())
+            if len(conversation_ids) > 1:
+                # 如果有多个对话，提供切换选项
+                conversation_names = []
+                for cid in conversation_ids:
+                    # 为每个对话生成简单名称
+                    if cid == "default":
+                        name = "默认对话"
+                    else:
+                        name = f"对话 {cid.split('_')[1][:4]}"
+                    conversation_names.append(name)
+                
+                # 获取当前对话索引
+                current_idx = conversation_ids.index(st.session_state.current_conversation_id)
+                
+                selected_idx = st.selectbox(
+                    "选择对话", 
+                    options=range(len(conversation_ids)),
+                    format_func=lambda x: conversation_names[x],
+                    index=current_idx
+                )
+                
+                if selected_idx != current_idx:
+                    switch_conversation(conversation_ids[selected_idx])
+                    st.rerun()
+            else:
+                st.info(f"当前对话: 对话 {'default' if st.session_state.current_conversation_id == 'default' else st.session_state.current_conversation_id.split('_')[1][:4]}")
+            
+            # 删除当前对话按钮
+            if len(conversation_ids) > 1:
+                if st.button("删除当前对话", use_container_width=True, type="secondary"):
+                    delete_conversation(st.session_state.current_conversation_id)
+                    st.rerun()
+
+        st.markdown("---")
         with st.expander("AI 配置", expanded=False):
             render_ai_config_panel()
 
@@ -996,7 +1088,6 @@ def render_sidebar() -> str:
             memory_error = str(st.session_state.get("memory_cache_error", "")).strip()
             if memory_error:
                 st.error(f"获取记忆列表失败：{memory_error}")
-
             if not memory_items:
                 st.caption("当前暂无长期记忆。")
             else:
@@ -1023,6 +1114,17 @@ def render_sidebar() -> str:
 
 
 def render_chat_history() -> None:
+    # 确保当前对话的消息被同步到messages变量
+    if "conversations" not in st.session_state:
+        # 如果对话系统未初始化，则初始化
+        st.session_state.conversations = {"default": []}
+        st.session_state.current_conversation_id = "default"
+    
+    if st.session_state.current_conversation_id in st.session_state.conversations:
+        st.session_state.messages = st.session_state.conversations[st.session_state.current_conversation_id]
+    else:
+        st.session_state.conversations[st.session_state.current_conversation_id] = []
+        st.session_state.messages = []
     for message in st.session_state.messages:
         role = message.get("role", "assistant")
         content = message.get("content", "")
@@ -1157,7 +1259,7 @@ def _resume_after_approval(user_id: str, action: str, session_id: str | None) ->
 
         try:
             full_answer, tool_events, interrupted = _consume_stream_events(
-                stream_resume_api(user_id, action, session_id=session_id),
+                stream_resume_api(user_id, action, session_id=session_id, thread_id=st.session_state.current_conversation_id),
                 answer_placeholder=answer_placeholder,
                 tool_placeholder=tool_placeholder,
                 agent_status_placeholder=agent_status_placeholder,
@@ -1176,7 +1278,15 @@ def _resume_after_approval(user_id: str, action: str, session_id: str | None) ->
         finally:
             st.session_state.approval_in_progress = False
 
-    st.session_state.messages.append({"role": "assistant", "content": full_answer, "tool_calls": tool_events or None})
+    # 将原来的 st.session_state.messages.append(...) 替换为：
+    # 将用户消息添加到当前对话
+    current_conv_id = st.session_state.current_conversation_id
+    if current_conv_id not in st.session_state.conversations:
+        st.session_state.conversations[current_conv_id] = []
+    st.session_state.conversations[current_conv_id].append({"role": "user", "content": user_query})
+
+    # 同步到messages变量
+    st.session_state.messages = st.session_state.conversations[current_conv_id]
 
     if not interrupted:
         _clear_pending_interrupt()
@@ -1197,7 +1307,7 @@ def _clear_backend_pending_interrupt(user_id: str) -> None:
     """强制清理后端待审批状态（按 reject 执行）。"""
     session_id = _active_session_id()
     try:
-        for _ in stream_resume_api(user_id, "reject", session_id=session_id):
+        for _ in stream_resume_api(user_id, "reject", session_id=session_id, thread_id=st.session_state.current_conversation_id):
             pass
     except requests.RequestException as exc:
         detail = _request_error_detail(exc)
@@ -1329,12 +1439,42 @@ def handle_user_input(user_id: str) -> None:
     if bool(st.session_state.get("chat_generating", False)):
         time.sleep(0.2)
         rerun_app()
+def switch_conversation(conversation_id: str) -> None:
+    """切换到指定对话"""
+    st.session_state.current_conversation_id = conversation_id
+    st.session_state.messages = st.session_state.conversations[conversation_id]
 
+def new_conversation() -> None:
+    """创建新对话"""
+    import uuid
+    conversation_id = f"conv_{str(uuid.uuid4())[:8]}"
+    st.session_state.conversations[conversation_id] = []
+    switch_conversation(conversation_id)
+
+def delete_conversation(conversation_id: str) -> None:
+    """删除指定对话"""
+    if conversation_id in st.session_state.conversations:
+        del st.session_state.conversations[conversation_id]
+        # 如果删除的是当前对话，则切换到第一个可用对话
+        if st.session_state.current_conversation_id == conversation_id:
+            available_convs = list(st.session_state.conversations.keys())
+            if available_convs:
+                switch_conversation(available_convs[0])
+            else:
+                new_conversation()
 
 def main() -> None:
     st.set_page_config(page_title="NanoAgent 前端", page_icon=":robot_face:", layout="wide")
     init_session_state()
-
+    # 在 init_session_state() 函数中添加
+    if "conversations" not in st.session_state:
+        st.session_state.conversations = {"default": []}
+    if "current_conversation_id" not in st.session_state:
+        st.session_state.current_conversation_id = "default"
+    # 确保 messages 也初始化
+    if "messages" not in st.session_state:
+        current_conv_id = st.session_state.current_conversation_id
+        st.session_state.messages = st.session_state.conversations[current_conv_id]
     user_id = render_sidebar()
 
     st.title("NanoAgent")
