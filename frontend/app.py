@@ -117,7 +117,45 @@ CONTROL_MARKUP_KEYWORDS = (
     "tool_query_database",
     "string=\"true\"",
 )
+# Add these constants to the existing constants section (around line 40)
+USER_THREADS_ENDPOINT_TEMPLATE = f"{AGENT_API_BASE_URL}/api/v1/user_threads/{{user_id}}"
+CHAT_HISTORY_ENDPOINT_TEMPLATE = f"{AGENT_API_BASE_URL}/api/v1/chat/history/{{thread_id}}?user_id={{user_id}}"
 
+# Add these functions after the existing API functions like stream_chat_api (around line 300)
+def get_user_threads_api(user_id: str) -> list[str]:
+    """获取用户的所有thread_ids"""
+    endpoint = USER_THREADS_ENDPOINT_TEMPLATE.format(user_id=_quote_path(user_id))
+    try:
+        response = requests.get(endpoint, headers=_request_headers(), timeout=30)
+        response.raise_for_status()
+        payload = response.json()
+        thread_ids = payload.get("thread_ids", [])
+        return [tid for tid in thread_ids if isinstance(tid, str)]
+    except requests.exceptions.RequestException as e:
+        st.error(f"获取用户对话线程失败: {e}")
+        return []
+
+def get_chat_history_api(thread_id: str, user_id: str) -> list[dict[str, Any]]:
+    """获取特定thread_id的聊天历史"""
+    endpoint = CHAT_HISTORY_ENDPOINT_TEMPLATE.format(thread_id=_quote_path(thread_id), user_id=_quote_path(user_id))
+    try:
+        response = requests.get(endpoint, headers=_request_headers(), timeout=30)
+        response.raise_for_status()
+        payload = response.json()
+        messages = payload.get("messages", [])
+        # Convert the messages to the format expected by the frontend
+        formatted_messages = []
+        for msg in messages:
+            formatted_messages.append({
+                "role": msg.get("role", "assistant"),
+                "content": msg.get("content", ""),
+                "timestamp": msg.get("timestamp", ""),
+                "tool_calls": msg.get("tool_calls", None)  # Add tool_calls if available
+            })
+        return formatted_messages
+    except requests.exceptions.RequestException as e:
+        st.error(f"获取聊天历史失败: {e}")
+        return []
 
 def _quote_path(value: str) -> str:
     return quote(value, safe="")
@@ -339,14 +377,28 @@ def delete_llm_session_api(session_id: str) -> dict[str, Any]:
 def init_session_state() -> None:
     default_user_id = AGENT_TOKEN_SUB or "user_001"
     import uuid
-    default_conversation_id = f"conv_{str(uuid.uuid4())[:8]}"
+    default_conversation_id = f"{default_user_id}_conv_{str(uuid.uuid4())[:8]}"
     if "user_id" not in st.session_state:
         st.session_state.user_id = default_user_id
     elif AGENT_TOKEN_SUB:
         st.session_state.user_id = AGENT_TOKEN_SUB
     if "conversations" not in st.session_state:
-        # 初始化对话字典，key为conversation_id，value为消息列表
+        # Initialize conversations dictionary
         st.session_state.conversations = {f"{default_conversation_id}": []}
+        # Only initialize with thread IDs, not full content yet
+        st.session_state.thread_ids = []
+        # Load thread IDs for the user (but not the content yet)
+        try:
+            thread_ids = get_user_threads_api(st.session_state.user_id)
+            if thread_ids:
+                st.session_state.thread_ids = thread_ids
+                for thread_id in thread_ids:
+                    st.session_state.conversations[thread_id] = []
+                st.success(f"{st.session_state.conversations}")
+                st.success(f"发现 {len(thread_ids)} 个历史对话，点击对话ID加载内容")
+        except Exception as e:
+            st.warning(f"加载历史对话ID时出现错误: {e}")
+            st.session_state.thread_ids = []
     if "current_conversation_id" not in st.session_state:
         # 当前激活的对话ID
         st.session_state.current_conversation_id = default_conversation_id
@@ -426,10 +478,34 @@ def init_session_state() -> None:
         st.session_state.llm_validation_result = None
     if "clear_llm_api_key_next_run" not in st.session_state:
         st.session_state.clear_llm_api_key_next_run = False
+    if "loaded_conversations" not in st.session_state:
+        # 跟踪哪些对话已被加载
+        st.session_state.loaded_conversations = set()
 
+def load_conversation_content(conversation_id: str) -> None:
+    """按需加载对话内容"""
+    if conversation_id in st.session_state.loaded_conversations:
+        # Already loaded, nothing to do
+        return
+    
+    # Check if this is a historical thread that needs loading
+    if conversation_id in st.session_state.thread_ids:
+        # This is a historical thread, load its content
+        history = get_chat_history_api(conversation_id, st.session_state.user_id)
+        if history:
+            st.session_state.conversations[conversation_id] = history
+            st.session_state.loaded_conversations.add(conversation_id)
+            st.success(f"已加载对话内容: {conversation_id[:12]}...")
+    else:
+        # This is a new conversation, initialize with empty list
+        st.session_state.conversations[conversation_id] = []
+        st.session_state.loaded_conversations.add(conversation_id)
 
 def switch_conversation(conversation_id: str) -> None:
     """切换到指定对话"""
+    # Load content if not already loaded
+    load_conversation_content(conversation_id)
+    
     st.session_state.current_conversation_id = conversation_id
     st.session_state.messages = st.session_state.conversations[conversation_id]
 
@@ -588,7 +664,7 @@ def _chat_stream_worker(
 def _start_chat_stream(user_id: str, query: str) -> None:
     """启动后台流式生成线程。"""
     import uuid
-    thread_id = f"{user_id}_{st.session_state.current_conversation_id}"    
+    thread_id = st.session_state.current_conversation_id   
     event_queue: "queue.Queue[dict[str, Any]]" = queue.Queue()
     stop_event = threading.Event()
     worker = threading.Thread(
@@ -1028,7 +1104,7 @@ def render_sidebar() -> str:
                     if cid == "default":
                         name = "默认对话"
                     else:
-                        name = f"对话 {cid.split('_')[1][:4]}"
+                        name = f"对话 {cid.split('_')[-1][-4:]}"
                     conversation_names.append(name)
                 
                 # 获取当前对话索引
@@ -1045,7 +1121,7 @@ def render_sidebar() -> str:
                     switch_conversation(conversation_ids[selected_idx])
                     st.rerun()
             else:
-                st.info(f"当前对话: 对话 {'default' if st.session_state.current_conversation_id == 'default' else st.session_state.current_conversation_id.split('_')[1][:4]}")
+                st.info(f"当前对话: 对话 {'default' if st.session_state.current_conversation_id == 'default' else st.session_state.current_conversation_id.split('_')[-1][-4:]}")
             
             # 删除当前对话按钮
             if len(conversation_ids) > 1:
@@ -1441,7 +1517,13 @@ def handle_user_input(user_id: str) -> None:
         rerun_app()
 def switch_conversation(conversation_id: str) -> None:
     """切换到指定对话"""
+    # 如果需要，加载内容
+    load_conversation_content(conversation_id)
+    
     st.session_state.current_conversation_id = conversation_id
+    # 确保对话存在
+    if conversation_id not in st.session_state.conversations:
+        st.session_state.conversations[conversation_id] = []
     st.session_state.messages = st.session_state.conversations[conversation_id]
 
 def new_conversation() -> None:

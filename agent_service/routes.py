@@ -13,7 +13,7 @@ from starlette.requests import Request
 from auth import _resolve_effective_user_id
 from graph.workflow import get_app_graph
 from auth import _resolve_effective_user_id
-import graph.workflow as get_app_graph
+
 
 from auth import (
     AuthContext,
@@ -49,7 +49,17 @@ from memory import MemoryProviderError
 
 logger = logging.getLogger("nanoagent.agent_service.routes")
 
+class ChatHistoryItem(BaseModel):
+    """单条聊天历史记录。"""
+    role: str
+    content: str
+    timestamp: str | None = None
 
+class ChatHistoryResponse(BaseModel):
+    """聊天历史记录响应体。"""
+    thread_id: str
+    user_id: str
+    messages: list[ChatHistoryItem]
 class ChatRequest(BaseModel):
     """聊天接口请求体。"""
 
@@ -669,3 +679,95 @@ def register_routes(app: FastAPI, session_store: Any, session_store_ready: bool)
                 exc,
             )
             raise HTTPException(status_code=500, detail="服务器内部错误") from exc
+    @app.get(
+        "/api/v1/chat/history/{thread_id}",
+        response_model=ChatHistoryResponse,
+        dependencies=[Depends(_require_api_auth)],
+    )
+    async def get_chat_history(
+        thread_id: str = Path(..., min_length=1),
+        user_id: str = Query(..., min_length=1),
+        auth_context: AuthContext = Depends(_require_user_context),
+    ) -> ChatHistoryResponse:
+        """根据 thread_id 获取聊天历史记录。"""
+        from auth import _resolve_effective_user_id
+
+        token_subject = _require_subject(auth_context)
+        resolved_user_id = _resolve_effective_user_id(
+            token_subject=token_subject,
+            client_user_id=user_id,
+            source="/api/v1/chat/history",
+        )
+        normalized_thread_id = thread_id.strip()
+
+        try:
+            llm_profile = await _resolve_llm_profile(None, owner_id=resolved_user_id, session_store=session_store, session_store_ready=session_store_ready)
+            config = _graph_config(resolved_user_id, llm_profile, thread_id=normalized_thread_id)
+            
+            # 获取图状态以获取消息历史
+            state = await get_app_graph().aget_state(config)
+            
+            # 提取消息历史
+            messages = []
+            if hasattr(state, 'values') and 'messages' in state.values:
+                from datetime import datetime
+                
+                for msg in state.values['messages']:
+                    # 根据消息类型提取内容和角色
+                    role = getattr(msg, 'type', 'unknown')
+                    content = getattr(msg, 'content', '')
+                    
+                    # 创建历史记录项
+                    messages.append(ChatHistoryItem(
+                        role=role,
+                        content=str(content),
+                        timestamp=datetime.now().isoformat()  # 使用当前时间作为时间戳
+                    ))
+            
+            return ChatHistoryResponse(
+                thread_id=normalized_thread_id,
+                user_id=resolved_user_id,
+                messages=messages
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("获取聊天历史失败 | user_id=%s | thread_id=%s | error=%s", resolved_user_id, normalized_thread_id, exc)
+            raise HTTPException(status_code=500, detail="服务器内部错误") from exc
+    from history import ConversationHistoryViewer
+
+    # Add this new endpoint inside the register_routes function, after the existing endpoints
+    @app.get(
+        "/api/v1/user_threads/{user_id}",
+        dependencies=[Depends(_require_api_auth)],
+    )
+    async def get_user_threads(
+        user_id: str = Path(..., min_length=1),
+        auth_context: AuthContext = Depends(_require_user_context),
+    ):
+        """获取指定用户的所有 thread_id 列表。"""
+        token_subject = _require_subject(auth_context)
+        resolved_user_id = _resolve_effective_user_id(
+            token_subject=token_subject,
+            client_user_id=user_id,
+            source="/api/v1/user_threads",
+        )
+        try:
+            # Use ConversationHistoryViewer to get all thread_ids
+            async with ConversationHistoryViewer() as viewer:
+                all_thread_ids = await viewer.list_thread_ids()
+            
+                # Filter thread_ids that belong to the user
+                # Since thread_ids might be based on user_id (when no specific thread_id is provided, user_id is used as thread_id)
+                # We'll return all thread_ids that either match the user_id directly
+                # or start with the user_id (indicating they belong to that user)
+                user_thread_ids = []
+                for thread_id in all_thread_ids:
+                    # If thread_id exactly matches user_id or starts with user_id pattern
+                    # This assumes that threads for a user either use user_id as thread_id
+                    # or have user_id as a prefix/part of the thread_id
+                    if thread_id == resolved_user_id or thread_id.startswith(resolved_user_id + ":") or thread_id.startswith(resolved_user_id + "_"):
+                        user_thread_ids.append(thread_id)
+                    
+            return {"user_id": resolved_user_id, "thread_ids": user_thread_ids}
+        except Exception as e:
+            logger.exception("获取用户线程列表失败 | user_id=%s | error=%s", resolved_user_id, e)
+            raise HTTPException(status_code=500, detail="获取用户线程列表失败")
