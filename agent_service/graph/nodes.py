@@ -11,7 +11,7 @@ from langchain_core.runnables import RunnableConfig
 from .config import REPORT_CONTENT_SOFT_LIMIT, logger
 from .llm import _get_bound_llm, _get_chat_llm, _get_non_stream_chat_llm, _llm_profile_from_config
 from .prompts import (
-    NO_TOOL_INTENT_PROMPT,
+    ASSISTANT_PROMPT,
     REPORT_EXECUTION_GUARD_PROMPT,
     SUPERVISOR_ROUTER_PROMPT,
     KNOWLEDGE_WORKER_PROMPT,
@@ -355,7 +355,7 @@ async def assistant_node(
     skill_list_str = "\n".join([f"- {s['name']}: {s['description']}" for s in skills])
 
     system_prompt = (
-        f"{NO_TOOL_INTENT_PROMPT}\n"
+        f"{ASSISTANT_PROMPT}\n"
         "你是一个智能助手，拥有专业的技能团队来帮助你解决问题。\n\n"
         f"可用的专家技能团队：\n{skill_list_str}\n\n"
         "重要规则：\n"
@@ -410,7 +410,6 @@ async def skills_tools_node(state: AgentState, config: RunnableConfig) -> dict[s
         llm = _get_chat_llm(config)
         model = llm.bind_tools(DEFAULT_TOOLS)
         full_messages = [SystemMessage(content=system_text)] + state["messages"]
-        print(full_messages)
         
         logger.debug("Invoking LLM...")
         response = await model.ainvoke(full_messages)

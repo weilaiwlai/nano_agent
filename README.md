@@ -1,19 +1,20 @@
-﻿﻿# NanoAgent
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿# NanoAgent
 
-企业级 Multi-Agent 智能体项目（Supervisor + Worker + HITL 审批 + 长期记忆 + MCP 工具层）。
+🚀 企业级多智能体协作平台（Supervisor + Worker + 技能生态 + MCP 工具层 + 长期记忆）
 
 ## 项目概览
 
-NanoAgent 是一个基于 LangGraph 的多智能体协作系统，提供可落地、可演示、可扩展的企业级 AI Agent 基线工程，强调以下核心能力：
+NanoAgent 是一个基于 LangGraph 构建的现代化多智能体系统，集成了 Anthropic Agent Skills 标准，提供完整的技能生态和工具管理能力。项目强调以下核心特性：
 
-- **多智能体协作**：Supervisor 统筹分派，DataScientist 负责数据库分析，Reporter 负责邮件报告，Assistant 处理通用问答
-- **长期记忆**：基于 Chroma 向量库，按 `user_id` 隔离检索与管理
-- **工具层解耦**：通过 MCP 协议提供数据库查询、报告发送等工具能力
-- **流式体验**：前端实时展示 token、节点切换、工具调用状态
-- **人机协同审批（HITL）**：高风险工具调用支持人工审批后再执行
-- **安全优先**：BYOK 会话密钥加密存储、JWT 用户绑定、服务间鉴权
+- **🤖 多智能体协作**：Supervisor 智能统筹，Worker 专业执行，支持动态路由和状态管理
+- **📚 技能生态系统**：遵循 Anthropic Agent Skills 标准，支持热插拔技能安装和动态创建
+- **🔧 MCP 工具层**：通过 MCP 协议提供标准化的工具调用接口
+- **🧠 长期记忆**：基于 Chroma 向量数据库，支持用户隔离的记忆管理
+- **⚡ 流式体验**：实时展示 token 流、节点切换、工具调用状态
+- **👥 人机协同**：高风险工具调用支持人工审批（HITL）
+- **🔒 安全优先**：BYOK 加密、JWT 用户绑定、服务间鉴权
 
-## 目录结构
+## 项目结构
 
 ```text
 NanoAgent/
@@ -22,23 +23,32 @@ NanoAgent/
 ├── .gitignore             # Git 忽略文件
 ├── requirements.txt       # Python 依赖包
 ├── start.bat             # Windows 启动脚本
-├── agent_service/         # 智能体服务
+├── agent_service/         # 智能体核心服务
 │   ├── main.py           # FastAPI 主服务入口
-│   ├── graph.py          # LangGraph 图定义
+│   ├── graph/            # LangGraph 图定义和节点
+│   │   ├── nodes.py      # 智能体节点定义
+│   │   ├── workflow.py   # 工作流定义
+│   │   ├── skills/       # 技能管理模块
+│   │   └── prompts.py    # 提示词模板
+│   ├── skills/           # 技能库
+│   │   ├── chart_maker/  # 图表制作技能
+│   │   ├── demo_math/    # 数学计算技能
+│   │   ├── hr_assistant/ # HR助手技能
+│   │   ├── skill_creator/ # 技能创建器（元技能）
+│   │   └── ...           # 更多预置技能
 │   ├── memory.py         # 长期记忆管理
 │   ├── session_store.py  # 会话存储管理
-│   ├── start_agent.py    # 智能体启动脚本
 │   └── data/             # 数据存储目录
 │       └── chroma/       # Chroma 向量数据库
 ├── frontend/              # 前端界面
 │   └── app.py            # Streamlit 前端应用
-├── mcp_server/            # MCP 工具服务
-│   └── main.py           # MCP 服务入口
+├── mcp_server/            # MCP 工具服务层
+│   ├── main.py           # MCP 服务入口
+│   ├── tools.py          # 工具定义
+│   └── agentdata/        # 工具数据存储
 └── tests/                 # 测试文件
-    ├── create_database.py # 数据库创建测试
     ├── test_db_service.py # 数据库服务测试
     ├── test_mcp_service.py # MCP 服务测试
-    ├── test_redis.py     # Redis 测试
     └── test_session_store.py # 会话存储测试
 ```
 
@@ -82,36 +92,59 @@ flowchart TD
 
 ## 核心功能
 
-### 1) 流式聊天（SSE）
+### 🤖 多智能体工作流
 
-后端 `/api/v1/chat` 返回事件流，前端实时消费：
+基于 LangGraph 的状态机管理，支持动态路由和协作：
 
-- `token`：模型输出片段
-- `agent_switch`：节点切换状态
-- `tool_start / tool_end`：工具调用生命周期
-- `interrupt`：命中 HITL 待审批
-- `[DONE]`：本轮结束
+- **Supervisor 节点**：智能分析用户需求，路由到合适的 Worker
+- **Worker 节点**：专业执行特定任务（数据分析、报告生成、通用问答）
+- **工具节点**：统一管理工具调用，支持 HITL 审批
+- **记忆节点**：检索和更新长期记忆，支持上下文增强
 
-### 2) 人机协同审批（HITL）
+### 📚 技能生态系统
 
-- 图编译时使用 `interrupt_before=["tools_node"]`。
-- 前端收到 `interrupt` 后渲染“允许/拒绝”操作。
-- `/api/v1/chat/resume` 支持审批续跑。
+遵循 Anthropic Agent Skills 标准，提供完整的技能管理：
 
-### 3) 长期记忆（Long-Term Memory）
+- **热插拔技能安装**：支持动态加载和卸载技能
+- **技能创建器（Meta-Skill）**：支持动态创建新技能
+- **预置技能库**：包含图表制作、数学计算、HR助手、股票查询等
+- **标准化接口**：统一的技能描述、参数定义和执行接口
 
-- 使用 `chromadb.PersistentClient("/app/data/chroma")`。
-- 记忆写入包含 `user_id + timestamp` 元数据。
-- 检索时强制按 `user_id` 过滤，支持查看与删除。
-- `embedding_model` 留空时，表示禁用 embedding（不写入向量记忆）。
+### 🔧 MCP 工具层
 
-### 4) MCP 工具层
+通过 MCP（Model Context Protocol）提供标准化的工具调用：
 
-`mcp_server` 暴露工具代理接口：
+- **数据库查询**：安全的只读 SQL 查询，支持数据分析和报表生成
+- **邮件发送**：支持 mock 和 SMTP 双模式，内容长度智能处理
+- **文件系统操作**：安全的文件读写和管理能力
+- **搜索服务**：集成网络搜索和本地数据检索
 
-- `query_database(sql)`：仅允许只读 `SELECT/CTE`，禁止 DDL/DML、多语句。
-- `send_report(email, content)`：支持 `mock/smtp` 双模式。
-- `upsert_user_setting(...)`：受控写工具（按服务侧用户上下文隔离）。
+### 🧠 长期记忆管理
+
+基于 Chroma 向量数据库的智能记忆系统：
+
+- **用户隔离**：按 `user_id` 严格隔离记忆数据
+- **时间戳管理**：支持按时间范围检索和清理
+- **上下文增强**：智能检索相关记忆注入对话上下文
+- **可配置嵌入**：支持启用/禁用向量嵌入功能
+
+### ⚡ 流式交互体验
+
+实时的事件流传输，提供完整的交互反馈：
+
+- **Token 流**：实时显示模型生成内容
+- **节点切换**：可视化智能体工作状态切换
+- **工具调用**：实时展示工具执行过程和结果
+- **审批中断**：HITL 审批流程的实时交互
+
+### 👥 人机协同（HITL）
+
+高风险操作的人工审批机制：
+
+- **智能拦截**：在工具执行前自动中断等待审批
+- **可视化审批**：前端提供清晰的审批界面
+- **状态持久化**：审批状态在服务重启后保持
+- **安全审计**：完整的审批日志和操作记录
 
 ## 邮件能力说明（重要）
 
@@ -138,9 +171,89 @@ flowchart TD
 - 审批状态持久化：LangGraph checkpointer 落地 Postgres，服务重启不丢审批上下文。
 - 日志与流式信息默认脱敏，避免泄露敏感参数。
 
-## 快速启动
+## 🚀 快速开始
 
-### 1. 准备环境变量
+### 环境准备
+
+1. **克隆项目**
+   ```bash
+   git clone <repository-url>
+   cd NanoAgent
+   ```
+
+2. **安装依赖**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+3. **配置环境变量**
+   ```bash
+   cp .env.example .env
+   # 编辑 .env 文件，配置必要的环境变量
+   ```
+
+### 启动服务
+
+使用提供的启动脚本：
+```bash
+# Windows
+start.bat
+
+# 或手动启动各服务
+# 启动 MCP 工具服务 (端口 8000)
+cd mcp_server && python main.py
+
+# 启动智能体服务 (端口 8080)  
+cd agent_service && python main.py
+
+# 启动前端界面 (端口 8501)
+cd frontend && streamlit run app.py
+```
+
+## 📦 技能库说明
+
+项目内置了丰富的预置技能，支持开箱即用：
+
+### 核心技能
+- **chart_maker** - 数据可视化图表制作
+- **demo_math** - 数学计算和问题求解
+- **hr_assistant** - 人力资源管理和文档处理
+- **password_generator** - 安全密码生成
+- **stock_ticker** - 股票信息查询和分析
+- **system_monitor** - 系统状态监控
+- **url_reader** - 网页内容提取和分析
+- **web_searcher** - 网络搜索和信息检索
+
+### 元技能
+- **skill_creator** - 动态技能创建器，支持自定义技能开发
+
+## 🔧 开发与扩展
+
+### 添加新技能
+
+1. 在 `agent_service/skills/` 目录下创建技能文件夹
+2. 遵循技能标准结构：
+   ```
+   skill_name/
+   ├── scripts/           # 技能执行脚本
+   ├── SKILL.md          # 技能描述文档
+   └── __init__.py       # 技能注册文件
+   ```
+
+3. 技能会自动被系统检测和加载
+
+### 自定义工具
+
+通过 MCP 协议扩展工具能力：
+1. 在 `mcp_server/tools.py` 中定义新工具
+2. 实现工具的执行逻辑
+3. 工具会自动暴露给智能体使用
+
+## 📞 技术支持
+
+- 查看项目文档了解详细配置
+- 参考测试文件了解接口使用
+- 通过 Issue 反馈问题或建议
 
 ```bash
 copy .env.example .env
