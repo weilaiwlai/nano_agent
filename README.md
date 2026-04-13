@@ -113,6 +113,12 @@ flowchart TD
 - `send_report(email, content)`：支持 `mock/smtp` 双模式。
 - `upsert_user_setting(...)`：受控写工具（按服务侧用户上下文隔离）。
 
+### 📦 标准化技能生态
+- 遵循 Anthropic Agent Skills 标准
+- 热插拔式技能安装
+- 支持动态技能创建（Meta-Skill）
+- 丰富的预置技能库
+
 ## 邮件能力说明（重要）
 
 默认安全模式：`REPORT_PROVIDER=mock`。
