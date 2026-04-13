@@ -394,7 +394,6 @@ def init_session_state() -> None:
                 st.session_state.thread_ids = thread_ids
                 for thread_id in thread_ids:
                     st.session_state.conversations[thread_id] = []
-                st.success(f"{st.session_state.conversations}")
                 st.success(f"发现 {len(thread_ids)} 个历史对话，点击对话ID加载内容")
         except Exception as e:
             st.warning(f"加载历史对话ID时出现错误: {e}")
