@@ -193,7 +193,7 @@ def summaries_messages(messages: list[BaseMessage],config: RunnableConfig,sum_me
     summary_text = "\n".join([
         f"{msg.type}: {msg.content}" for msg in messages
     ])
-    logger.info(f"原始历史消息: {summary_text}")
+    # logger.info(f"原始历史消息: {summary_text}")
     if sum_messages:
         summary_text = f"历史摘要：{sum_messages[0].content}\n{summary_text}"
     # 创建摘要提示
@@ -209,7 +209,7 @@ def summaries_messages(messages: list[BaseMessage],config: RunnableConfig,sum_me
         from langchain_core.messages import SystemMessage
         summary_msg = SystemMessage(content=f"更久以前的对话历史摘要: {summary_result.content}")
         # 返回摘要消息加上最近5条消息
-        logger.info(f"Summary message: {summary_msg}")
+        logger.info(f"Summary message成功: {summary_msg}")
         # 存储到 Redis
     except Exception:
         logger.error("摘要生成失败")
@@ -541,7 +541,7 @@ def get_messages_info_from_redis(config):
                 'key': redis_key
             }
 
-            logger.info(f"从Redis获取最新消息信息成功: {result['key']}, 消息长度: {result['message_len']}")
+            logger.info(f"从Redis获取最新摘要消息信息成功: {result['sum_messages']}")
             return result
         else:
             logger.info(f"Redis中没有找到键: {redis_key}")
