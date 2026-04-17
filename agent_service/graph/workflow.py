@@ -30,9 +30,10 @@ from .routes import (
     _route_after_supervisor,
     _route_after_tools,
     _route_after_skills_tools,
+    _route_after_permission_tools,
 )
 from .state import AgentState
-from .tools import tools_node
+from .tools import tools_node, permission_tools_node
 from langgraph.prebuilt import ToolNode
 from .skills.tools import DEFAULT_TOOLS
 
@@ -97,6 +98,7 @@ def _build_workflow() -> StateGraph:
     workflow.add_node("reporter_node", reporter_node)
     workflow.add_node("assistant_node", assistant_node)
     workflow.add_node("tools_node", tools_node)
+    workflow.add_node("permission_tools_node", permission_tools_node)
     workflow.add_node("skills_tools_node", skills_tools_node)
     workflow.add_node("skill_tools", ToolNode(DEFAULT_TOOLS))
 
@@ -127,7 +129,7 @@ def _build_workflow() -> StateGraph:
         "reporter_node",
         _route_after_reporter,
         {
-            "tools_node": "tools_node",
+            "permission_tools_node": "permission_tools_node",
             "__end__": END,
         },
     )
@@ -146,6 +148,13 @@ def _build_workflow() -> StateGraph:
         _route_after_tools,
         {
             "knowledge_worker_node": "knowledge_worker_node",
+            # "reporter_node": "reporter_node",
+        },
+    )
+    workflow.add_conditional_edges(
+        "permission_tools_node",
+        _route_after_permission_tools,
+        {
             "reporter_node": "reporter_node",
         },
     )
@@ -185,7 +194,7 @@ async def init_graph_runtime() -> Any:
         _checkpointer_cm = None
         _checkpointer_backend_in_use = "memory"
 
-    app_graph = _build_workflow().compile(checkpointer=checkpointer, interrupt_before=["tools_node"])
+    app_graph = _build_workflow().compile(checkpointer=checkpointer, interrupt_before=["permission_tools_node"])
     logger.info("graph runtime 初始化完成 | checkpointer_backend=%s", _checkpointer_backend_in_use)
     return app_graph
 

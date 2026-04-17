@@ -67,7 +67,7 @@ def _route_after_knowledge_worker(
 
 def _route_after_reporter(
     state: AgentState,
-) -> Literal["tools_node", "__end__"]:
+) -> Literal["permission_tools_node", "__end__"]:
     """报告节点后路由。"""
     messages = state.get("messages", [])
     if not messages:
@@ -75,8 +75,8 @@ def _route_after_reporter(
 
     last_message = messages[-1]
     if isinstance(last_message, AIMessage) and last_message.tool_calls:
-        logger.info("路由 | reporter_node -> tools_node | tool_calls=%d", len(last_message.tool_calls))
-        return "tools_node"
+        logger.info("路由 | reporter_node -> permission_tools_node | tool_calls=%d", len(last_message.tool_calls))
+        return "permission_tools_node"
 
     logger.info("路由 | reporter_node -> END | reason=no_tool_calls")
     return "__end__"
@@ -115,11 +115,19 @@ def _route_after_assistant(state: AgentState) -> Literal["skills_tools_node", "_
 def _route_after_tools(state: AgentState) -> Literal["knowledge_worker_node", "reporter_node"]:
     """工具节点后路由：按 sender 回到对应 Worker。"""
     sender = (state.get("sender") or "").strip()
-    if sender == "Reporter":
-        logger.info("路由 | tools_node -> reporter_node | sender=%s", sender)
-        return "reporter_node"
-    logger.info("路由 | tools_node -> knowledge_worker_node | sender=%s", sender or "unknown")
+    # if sender == "Reporter":
+    #     logger.info("路由 | tools_node -> reporter_node | sender=%s", sender)
+    #     return "reporter_node"
+    if sender == "KnowledgeWorker":
+        logger.info("路由 | tools_node -> knowledge_worker_node | sender=%s", sender or "unknown")
+        return "knowledge_worker_node"
     return "knowledge_worker_node"
+def _route_after_permission_tools(state: AgentState) -> Literal["reporter_node"]:
+    """工具节点后路由：按 sender 回到对应 Worker。"""
+    sender = (state.get("sender") or "").strip()
+    if sender == "Reporter":
+        logger.info("路由 | permission_tools_node -> reporter_node | sender=%s", sender)
+        return "reporter_node"
 
 def _route_after_skills_tools(state: AgentState) -> Literal["assistant_node"]:
     """工具节点后路由：按 sender 回到 Assistant 节点。"""

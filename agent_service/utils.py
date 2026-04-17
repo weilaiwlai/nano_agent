@@ -516,12 +516,12 @@ def _graph_config(user_id: str, llm_profile: dict[str, str], thread_id: str) -> 
     }
 
 def _is_waiting_for_tools_node(state: Any) -> bool:
-    """判断图是否被中断在 tools_node 前。"""
+    """判断图是否被中断在 permission_tools_node 前。"""
     next_nodes = getattr(state, "next", ()) or ()
     if isinstance(next_nodes, str):
-        return next_nodes == "tools_node"
+        return next_nodes == "permission_tools_node"
     try:
-        return "tools_node" in set(next_nodes)
+        return "permission_tools_node" in set(next_nodes)
     except TypeError:
         return False
 
