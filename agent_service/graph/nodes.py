@@ -7,8 +7,9 @@ from typing import Any, Literal
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
+from .utils import get_messages_info_from_redis, summaries_messages, store_messages_info_to_redis
 
-from .config import REPORT_CONTENT_SOFT_LIMIT, logger
+from .config import REPORT_CONTENT_SOFT_LIMIT, logger,MAX_MODEL_HISTORY_MESSAGES
 from .llm import _get_bound_llm, _get_chat_llm, _get_non_stream_chat_llm, _llm_profile_from_config
 from .prompts import (
     ASSISTANT_PROMPT,
@@ -140,9 +141,23 @@ async def supervisor_node(
 ) -> dict[str, list[BaseMessage] | str]:
     """主管节点：语义路由到 KnowledgeWorker / Reporter / Assistant / FINISH。"""
     user_id = state.get("user_id", "").strip()
-    history = _sanitize_history_for_model(state.get("messages", []))
+    history = _sanitize_history_for_model(state.get("messages", []),config=config)
     memory_context = state.get("memory_context", "")
-
+    messages = state.get("messages", [])
+    if len(messages) > MAX_MODEL_HISTORY_MESSAGES:
+        messages = messages[:-MAX_MODEL_HISTORY_MESSAGES]
+        sum_messages = None
+        message_info = get_messages_info_from_redis(config)
+        if message_info:
+            sum_messages = message_info['sum_messages']
+            message_len = message_info['message_len']
+            new_messages=messages[message_len-1:]
+        else:
+            new_messages=messages
+        sum_messages = summaries_messages(new_messages,config=config,sum_messages=sum_messages)
+        # 将消息长度和摘要消息存储到Redis
+        message_len = len(messages)
+        store_messages_info_to_redis(message_len, config, sum_messages)
     logger.info(
         "节点开始 | supervisor_node | user_id=%s | history_len=%d",
         user_id or "unknown",
@@ -188,10 +203,12 @@ async def knowledge_worker_node(
 ) -> dict[str, list[BaseMessage] | str]:
     """数据科学家节点：负责数据分析与数据库工具调用。"""
     user_id = state.get("user_id", "").strip()
-    history = _sanitize_history_for_model(_trim_supervisor_decision(state.get("messages", [])))
+    history = _sanitize_history_for_model(_trim_supervisor_decision(state.get("messages", [])),config=config)
     memory_context = state.get("memory_context", "")
     latest_query = _latest_user_query(history)
-
+    summary=get_messages_info_from_redis(config)
+    if summary:
+        history=summary['sum_messages']+history
     logger.info(
         "节点开始 | knowledge_worker_node | user_id=%s | history_len=%d",
         user_id or "unknown",
@@ -231,10 +248,12 @@ async def reporter_node(
 ) -> dict[str, list[BaseMessage] | str]:
     """报告专家节点（执行阶段）：仅处理"发送邮件"动作。"""
     user_id = state.get("user_id", "").strip()
-    history = _sanitize_history_for_model(_trim_supervisor_decision(state.get("messages", [])))
+    history = _sanitize_history_for_model(_trim_supervisor_decision(state.get("messages", [])),config=config)
     latest_query = _latest_user_query(history)
     has_send_report_result = _has_recent_send_report_tool_result(history)
-
+    summary=get_messages_info_from_redis(config)
+    if summary:
+        history=summary['sum_messages']+history
     logger.info(
         "节点开始 | reporter_node | user_id=%s | history_len=%d",
         user_id or "unknown",
@@ -336,9 +355,9 @@ async def assistant_node(
 ) -> dict[str, list[BaseMessage] | str]:
     """Assistant 节点：负责一般对话生成，可以使用所有skill工具。"""
     user_id = state.get("user_id", "").strip()
-    history = _sanitize_history_for_model(_trim_supervisor_decision(state.get("messages", [])))
+    history = _sanitize_history_for_model(_trim_supervisor_decision(state.get("messages", [])),config=config)
     memory_context = state.get("memory_context", "")
-
+    
     logger.info(
         "节点开始 | assistant_node | user_id=%s | history_len=%d",
         user_id or "unknown",
@@ -353,7 +372,9 @@ async def assistant_node(
         logger.info("当前可用技能列表：%s", ", ".join([s["name"] for s in skills]))
 
     skill_list_str = "\n".join([f"- {s['name']}: {s['description']}" for s in skills])
-
+    summary=get_messages_info_from_redis(config)
+    if summary:
+        history=summary['sum_messages']+history
     system_prompt = (
         f"{ASSISTANT_PROMPT}\n"
         "你是一个智能助手，拥有专业的技能团队来帮助你解决问题。\n\n"

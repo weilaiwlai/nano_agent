@@ -12,7 +12,9 @@ import uuid
 from fastapi import HTTPException
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from dotenv import load_dotenv
 
+load_dotenv()
 from config import (
     ALLOWED_LLM_BASE_URLS,
     AUTO_MEMORY_MAX_LEN,

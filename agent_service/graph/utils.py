@@ -5,9 +5,8 @@ import json
 import re
 from uuid import uuid4
 from typing import Any
-
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
-
+from langchain_core.runnables import RunnableConfig
 from .config import (
     CONTROL_CONTENT_ARG_OPEN_PATTERN,
     CONTROL_EMAIL_ARG_PATTERN,
@@ -118,6 +117,7 @@ def _sanitize_history_for_model(
     messages: list[BaseMessage],
     *,
     max_messages: int = MAX_MODEL_HISTORY_MESSAGES,
+    config: RunnableConfig | None = None,
 ) -> list[BaseMessage]:
     """清理对模型不友好的历史片段（未闭环 tool_calls / 孤立 ToolMessage）。"""
     if not messages:
@@ -178,16 +178,43 @@ def _sanitize_history_for_model(
 
         sanitized.append(message)
         index += 1
-
+    summary_msg = None
     if max_messages > 0 and len(sanitized) > max_messages:
+        logger.info("历史消息清理 | max_messages=%d", max_messages)
         tail = sanitized[-max_messages:]
         sanitized = _sanitize_history_for_model(tail, max_messages=0)
-
     if dropped_count > 0:
         logger.info("历史消息清理完成 | dropped=%d | kept=%d", dropped_count, len(sanitized))
-
     return sanitized
 
+def summaries_messages(messages: list[BaseMessage],config: RunnableConfig,sum_messages:list[BaseMessage]=None) -> list[BaseMessage]:
+    # 将早期消息转换为文本格式，用于摘要生成
+    messages=_sanitize_history_for_model(messages,config=config,max_messages=0)
+    summary_text = "\n".join([
+        f"{msg.type}: {msg.content}" for msg in messages
+    ])
+    # logger.info(f"原始历史消息: {summary_text}")
+    if sum_messages:
+        summary_text = f"历史摘要：{sum_messages[0].content}\n{summary_text}"
+    # 创建摘要提示
+    summary_prompt = f"""
+    请总结以下对话历史，提取关键信息和上下文，限制在100字以内：
+    {summary_text}
+    """
+    try:
+        # 使用大模型生成摘要
+        from .llm import _get_non_stream_chat_llm
+        summary_result = _get_non_stream_chat_llm(config).invoke(summary_prompt)
+        # 创建摘要消息对象
+        from langchain_core.messages import SystemMessage
+        summary_msg = SystemMessage(content=f"更久以前的对话历史摘要: {summary_result.content}")
+        # 返回摘要消息加上最近5条消息
+        logger.info(f"Summary message成功: {summary_msg}")
+        # 存储到 Redis
+    except Exception:
+        logger.error("摘要生成失败")
+        summary_msg = None
+    return [summary_msg]
 
 def _latest_human_index(messages: list[BaseMessage]) -> int:
     """返回最近一条 HumanMessage 的索引，不存在则返回 -1。"""
@@ -419,3 +446,126 @@ def _normalize_send_report_args(
         content = "请查收本次自动生成的报告。"
 
     return {"email": email, "content": content}
+
+def store_messages_info_to_redis(message_len: int, config: RunnableConfig, sum_messages: list[BaseMessage]) -> None:
+    """
+    将消息长度和摘要消息存储到Redis，覆盖原有数据
+    
+    Args:
+        message_len: 消息长度
+        config: 配置对象
+        sum_messages: 摘要消息列表
+    """
+    try:
+        import redis
+        import json
+        from .config import REDIS_URL
+        
+        # 连接到Redis
+        redis_client = redis.from_url(REDIS_URL)
+        
+        # 生成统一的键，基于会话ID，这样会覆盖原有的数据
+        thread_id = f"{config.get('configurable', {}).get('thread_id', 'default_thread')}"
+        redis_key = f"messages_info:{thread_id}:latest"
+        
+        # 准备要存储的数据 - 仅存储message_len和sum_messages
+        messages_info = {
+            'message_len': message_len,
+            'sum_messages_count': len(sum_messages),
+            'sum_messages_content': [
+                {
+                    'type': str(getattr(msg, 'type', 'unknown')),
+                    'content': _message_to_text(msg) if msg else '',
+                    'additional_kwargs': getattr(msg, 'additional_kwargs', {}) if msg else {}
+                } for msg in sum_messages if msg
+            ],
+            'timestamp': __import__('time').time(),
+            'thread_id': thread_id
+        }
+        
+        # 存储到Redis，设置24小时过期
+        redis_client.setex(redis_key, 86400, json.dumps(messages_info, ensure_ascii=False))
+        
+        logger.info(f"消息信息已存储到Redis: {redis_key}, 消息长度: {message_len}, 摘要消息数: {len(sum_messages)}")
+        
+    except ImportError:
+        logger.warning("Redis 模块未安装，跳过存储到Redis")
+    except Exception as e:
+        logger.error(f"存储消息信息到Redis失败: {e}")
+
+
+def get_messages_info_from_redis(config):
+    """
+    从Redis获取最新的消息信息
+    
+    Args:
+        thread_id: 会话ID
+    
+    Returns:
+        包含message_len和sum_messages的字典，如果没有找到则返回None
+    """
+    try:
+        import redis
+        import json
+        from .config import REDIS_URL
+        from langchain_core.messages import SystemMessage
+
+        # 连接到Redis
+        redis_client = redis.from_url(REDIS_URL)
+
+        # 直接获取该会话的最新消息信息键
+        thread_id = f"{config.get('configurable', {}).get('thread_id', 'default_thread')}"
+        redis_key = f"messages_info:{thread_id}:latest"
+        data = redis_client.get(redis_key)
+
+        if data:
+            messages_info = json.loads(data.decode('utf-8'))
+
+            # 重构摘要消息对象
+            sum_messages = []
+            for msg_data in messages_info.get('sum_messages_content', []):
+                if msg_data.get('type') == 'system':
+                    msg = SystemMessage(
+                        content=msg_data.get('content', ''),
+                        additional_kwargs=msg_data.get('additional_kwargs', {})
+                    )
+                    sum_messages.append(msg)
+
+            # 返回重构的消息信息
+            result = {
+                'message_len': messages_info.get('message_len'),
+                'sum_messages': sum_messages,
+                'sum_messages_count': messages_info.get('sum_messages_count'),
+                'timestamp': messages_info.get('timestamp'),
+                'thread_id': messages_info.get('thread_id'),
+                'key': redis_key
+            }
+
+            logger.info(f"从Redis获取最新摘要消息信息成功: {result['sum_messages']}")
+            return result
+        else:
+            logger.info(f"Redis中没有找到键: {redis_key}")
+            return None
+
+    except ImportError:
+        logger.warning("Redis 模块未安装")
+        return None
+    except Exception as e:
+        logger.error(f"从Redis获取消息信息失败: {e}")
+        return None
+    
+
+def get_summary_text(config: RunnableConfig) -> str:
+    sum_messages = None
+    summary_text = "（无）"
+    message_info = get_messages_info_from_redis(config)
+    if message_info:
+        sum_messages = message_info['sum_messages']
+        # 提取摘要消息的内容部分，而不是整个消息对象
+        if sum_messages:
+            summary_texts = []
+            for msg in sum_messages:
+                if hasattr(msg, 'content'):
+                    summary_texts.append(str(msg.content))
+            summary_text = "\n".join(summary_texts) if summary_texts else "（无）"
+    return summary_text
