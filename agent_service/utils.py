@@ -113,7 +113,7 @@ def _normalize_base_url(base_url: str | None, *, fallback_to_env: bool = True) -
     if _is_production_environment() and _is_disallowed_local_base_url(normalized):
         raise HTTPException(status_code=400, detail="生产环境禁止使用本地或内网 base_url")
 
-    if ALLOWED_LLM_BASE_URLS and all(not normalized.startswith(prefix) for prefix in ALLOWED_LLM_BASE_URLS):
+    if ALLOWED_LLM_BASE_URLS and all(not normalized.startswith(prefix) for prefix in ALLOWED_LLM_BASE_URLS):  #白名单校验
         raise HTTPException(status_code=400, detail="base_url 不在允许列表内")
 
     return normalized

@@ -10,6 +10,7 @@ from fastapi import Depends, FastAPI, HTTPException, Path, Query
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from starlette.requests import Request
+from langchain_core.messages import HumanMessage
 from auth import _resolve_effective_user_id
 from graph.workflow import get_app_graph
 from auth import _resolve_effective_user_id
@@ -328,7 +329,7 @@ def register_routes(app: FastAPI, session_store: Any, session_store_ready: bool)
             raise HTTPException(status_code=503, detail="LLM 会话存储未就绪，请稍后重试")
 
         owner_id = _require_subject(auth_context)
-        llm_profile = _build_llm_profile(request)
+        llm_profile = _build_llm_profile(request)  #构建LLM配置文件
 
         try:
             session_id, effective_ttl = await session_store.create_session(
@@ -408,7 +409,7 @@ def register_routes(app: FastAPI, session_store: Any, session_store_ready: bool)
             config = _graph_config(user_id, llm_profile, thread_id=user_id)
 
         try:
-            pending_state = await get_app_graph().aget_state(config)
+            pending_state = await get_app_graph().aget_state(config)  #获取当前图状态
             if _is_waiting_for_tools_node(pending_state):
                 pending_tool_calls = _extract_pending_tool_calls(pending_state)
                 if pending_tool_calls:
@@ -434,7 +435,7 @@ def register_routes(app: FastAPI, session_store: Any, session_store_ready: bool)
                                 _stream_pending_interrupt_only(
                                     user_id=user_id,
                                     pending_tool_calls=pending_tool_calls,
-                                ),
+                                ),  #告诉前端：还有一个任务在等你处理，而不执行新的查询。
                                 media_type="text/event-stream",
                                 headers=_streaming_headers(),
                             )
@@ -453,8 +454,6 @@ def register_routes(app: FastAPI, session_store: Any, session_store_ready: bool)
         auto_memory_id = _try_auto_save_memory(user_id, query, llm_profile)
         if auto_memory_id:
             logger.info("本轮对话已自动记录背景信息 | user_id=%s | memory_id=%s", user_id, auto_memory_id)
-
-        from langchain_core.messages import HumanMessage
 
         initial_state: dict[str, Any] = {
             "messages": [HumanMessage(content=query)],

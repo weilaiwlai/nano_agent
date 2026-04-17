@@ -72,12 +72,12 @@ def _decode_jwt_claims(token: str) -> dict[str, Any]:
         decode_kwargs["issuer"] = JWT_ISSUER
 
     try:
-        if _jwt_jwk_client is not None:
+        if _jwt_jwk_client is not None:  #先解析 Token 的头部，找到 kid（密钥ID），然后去认证服务器（通过 JWKS_URL）拉取对应的公钥。
             signing_key = _jwt_jwk_client.get_signing_key_from_jwt(token)
             key_material = signing_key.key
             return jwt.decode(token, key=key_material, **decode_kwargs)
 
-        if JWT_HS256_SECRET:
+        if JWT_HS256_SECRET:  #静态密钥（适用于简单的微服务内部通信）
             return jwt.decode(token, key=JWT_HS256_SECRET, **decode_kwargs)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=401, detail="JWT 校验失败，请重新登录") from exc
@@ -97,7 +97,7 @@ def _subject_from_claims(claims: dict[str, Any]) -> str:
 
 
 def _resolve_effective_user_id(*, token_subject: str, client_user_id: str, source: str) -> str:
-    """根据配置决定最终使用的 user_id。"""
+    """检查JWT subject与请求 user_id 是否匹配。"""
     if not AUTH_REQUIRE_USER_SUB:
         return client_user_id.strip()
 
