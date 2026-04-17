@@ -308,10 +308,12 @@ def stream_chat_api(user_id: str, query: str, session_id: str | None = None,thre
         yield from _iter_sse_events(response)
 
 
-def stream_resume_api(user_id: str, action: str, session_id: str | None = None) -> Iterator[dict[str, Any]]:
+def stream_resume_api(user_id: str, action: str, session_id: str | None = None, thread_id: str | None = None) -> Iterator[dict[str, Any]]:
     payload: dict[str, Any] = {"user_id": user_id, "action": action}
     if session_id and session_id.strip():
         payload["session_id"] = session_id.strip()
+    if thread_id and thread_id.strip():
+        payload["thread_id"] = thread_id.strip()
     with requests.post(
         CHAT_RESUME_ENDPOINT,
         json=payload,
@@ -1353,12 +1355,10 @@ def _resume_after_approval(user_id: str, action: str, session_id: str | None) ->
         finally:
             st.session_state.approval_in_progress = False
 
-    # 将原来的 st.session_state.messages.append(...) 替换为：
-    # 将用户消息添加到当前对话
     current_conv_id = st.session_state.current_conversation_id
     if current_conv_id not in st.session_state.conversations:
         st.session_state.conversations[current_conv_id] = []
-    st.session_state.conversations[current_conv_id].append({"role": "user", "content": user_query})
+    st.session_state.conversations[current_conv_id].append({"role": "assistant", "content": full_answer, "tool_calls": tool_events or None})
 
     # 同步到messages变量
     st.session_state.messages = st.session_state.conversations[current_conv_id]

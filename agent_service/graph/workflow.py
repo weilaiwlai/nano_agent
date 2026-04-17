@@ -146,6 +146,7 @@ def _build_workflow() -> StateGraph:
         _route_after_tools,
         {
             "knowledge_worker_node": "knowledge_worker_node",
+            "reporter_node": "reporter_node",
         },
     )
 
@@ -184,7 +185,7 @@ async def init_graph_runtime() -> Any:
         _checkpointer_cm = None
         _checkpointer_backend_in_use = "memory"
 
-    app_graph = _build_workflow().compile(checkpointer=checkpointer)
+    app_graph = _build_workflow().compile(checkpointer=checkpointer, interrupt_before=["tools_node"])
     logger.info("graph runtime 初始化完成 | checkpointer_backend=%s", _checkpointer_backend_in_use)
     return app_graph
 

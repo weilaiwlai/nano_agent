@@ -515,22 +515,19 @@ def _graph_config(user_id: str, llm_profile: dict[str, str], thread_id: str) -> 
         }
     }
 
-
 def _is_waiting_for_tools_node(state: Any) -> bool:
-    """判断图是否在等待工具节点审批。"""
-    values = getattr(state, "values", {}) or {}
-    if not isinstance(values, dict):
+    """判断图是否被中断在 tools_node 前。"""
+    next_nodes = getattr(state, "next", ()) or ()
+    if isinstance(next_nodes, str):
+        return next_nodes == "tools_node"
+    try:
+        return "tools_node" in set(next_nodes)
+    except TypeError:
         return False
-    next_node = values.get("__interrupt__")
-    if not next_node:
-        return False
-    if isinstance(next_node, dict):
-        next_node = next_node.get("value")
-    return str(next_node) == "tools_node"
 
 
 def _extract_pending_tool_calls(state: Any) -> list[dict[str, Any]]:
-    """从图状态中提取待审批的工具调用。"""
+    """从中断状态中提取待审批 tool_calls。"""
     values = getattr(state, "values", {}) or {}
     if not isinstance(values, dict):
         return []
@@ -539,19 +536,17 @@ def _extract_pending_tool_calls(state: Any) -> list[dict[str, Any]]:
     if not isinstance(messages, list) or not messages:
         return []
 
-    tool_calls: list[dict[str, Any]] = []
-    for message in messages:
-        if not isinstance(message, AIMessage):
-            continue
-        calls = getattr(message, "tool_calls", [])
-        if not isinstance(calls, list):
-            continue
-        for call in calls:
-            if not isinstance(call, dict):
-                continue
-            tool_calls.append(call)
+    last_message = messages[-1]
 
-    return tool_calls
+    if isinstance(last_message, AIMessage):
+        tool_calls = last_message.tool_calls or []
+        return [call for call in tool_calls if isinstance(call, dict)]
+
+    maybe_tool_calls = getattr(last_message, "tool_calls", None)
+    if isinstance(maybe_tool_calls, list):
+        return [call for call in maybe_tool_calls if isinstance(call, dict)]
+
+    return []
 
 
 def _message_content_to_text(content: Any) -> str:
@@ -737,8 +732,10 @@ async def _stream_graph_events(
             state = await get_app_graph().aget_state(config)
 
         if emit_interrupt and state is not None:
+            #logger.info("当前图状态 | user_id=%s | state=%s", user_id, state)
             if _is_waiting_for_tools_node(state):
                 pending_tool_calls = _extract_pending_tool_calls(state)
+                #logger.info("当前待审批工具调用 | user_id=%s | pending_tools=%d", user_id, len(pending_tool_calls))
                 if pending_tool_calls:
                     logger.info(
                         "命中 HITL 中断 | user_id=%s | pending_tools=%d",
