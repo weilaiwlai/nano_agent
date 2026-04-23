@@ -14,8 +14,12 @@ from langchain_core.messages import HumanMessage
 from auth import _resolve_effective_user_id
 from graph.workflow import get_app_graph
 from auth import _resolve_effective_user_id
-
-
+import os
+import shutil
+import io
+import pytesseract
+from PIL import Image
+import base64
 from auth import (
     AuthContext,
     _require_api_auth,
@@ -451,12 +455,101 @@ def register_routes(app: FastAPI, session_store: Any, session_store_ready: bool)
         except Exception as exc:  # noqa: BLE001
             logger.warning("预检查待审批状态失败 | user_id=%s | error=%s", user_id, exc)
 
+        # 检查upload目录下是否存在该用户上传的文件
+        upload_dir = f"./uploads/{user_id}"
+        all_file_contents = []
+        
+        if os.path.exists(upload_dir) and os.path.isdir(upload_dir):
+            
+            # 获取目录下的所有文件
+            files = os.listdir(upload_dir)
+            
+            # 循环读取所有文件内容
+            for file_name in files:
+                file_path = os.path.join(upload_dir, file_name)
+                
+                # 确保是文件而非子目录
+                if os.path.isfile(file_path):
+                    try:
+                        # 根据文件扩展名解析内容
+                        _, ext = os.path.splitext(file_path)
+                        ext = ext.lower()
+                        
+                        file_content = ""
+                        if ext == '.txt':
+                            with open(file_path, 'r', encoding='utf-8') as f:
+                                file_content = f.read()
+                        elif ext == '.csv':
+                            import pandas as pd
+                            df = pd.read_csv(file_path)
+                            file_content = df.to_string()
+                        #暂未实现
+                        # elif ext == '.pdf':
+                        #     import PyPDF2
+                        #     with open(file_path, 'rb') as f:
+                        #         pdf_reader = PyPDF2.PdfReader(f)
+                        #         pages_content = []
+                        #         for page in pdf_reader.pages:
+                        #             pages_content.append(page.extract_text())
+                        #         file_content = "\n".join(pages_content)
+                        # elif ext in ['.doc', '.docx']:
+                        #     from docx import Document
+                        #     doc = Document(file_path)
+                        #     paragraphs = [para.text for para in doc.paragraphs]
+                        #     file_content = "\n".join(paragraphs)
+                        # elif ext in ['.xls', '.xlsx']:
+                        #     import pandas as pd
+                        #     df = pd.read_excel(file_path)
+                        #     file_content = df.to_string()
+                        elif ext in ['.jpg', '.jpeg', '.png']:
+
+                            with Image.open(file_path) as img:
+                                img_format = img.format if img.format else 'JPEG'
+                                max_size = 2048
+                                if img.width > max_size or img.height > max_size:
+                                    # thumbnail 会保持宽高比进行缩放
+                                    img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+                                buffered = io.BytesIO()
+                                img.save(buffered, format=img_format)
+                                image_data = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                                
+                                file_content = {
+                                    "type":"image_url",
+                                    "image_url":{
+                                        "url":f"data:image/{img_format.lower()};base64,{image_data}",
+                                        "detail":"low"
+                                    }
+                                }
+                        else:
+                            file_content = "无法读取文件内容"
+                        if file_content:
+                            all_file_contents.append(file_content)
+                        
+                        logger.info(f"成功读取上传文件内容 | user_id={user_id} | file_path={file_path} | content_length={len(file_content)}")
+                    except Exception as e:
+                        logger.warning(f"读取上传文件失败 | user_id={user_id} | file_path={file_path} | error={str(e)}")
+                        all_file_contents.append(f"文件的内容: [内容无法解析]")
+            
+            #删除临时文件
+            try:
+                shutil.rmtree(upload_dir)
+                logger.info(f"已删除用户 {user_id} 的临时上传文件")
+            except Exception as e:
+                logger.warning(f"删除临时上传文件失败 | user_id={user_id} | error={str(e)}")
+        
+        # 构建最终查询，包含所有文件内容
+        content = []
+        if all_file_contents:
+            for file_content in all_file_contents:
+                content.append(file_content)
+            messages=[HumanMessage(content=content)]+[HumanMessage(content=query)]
+        else:
+            messages=[HumanMessage(content=query)]
         auto_memory_id = _try_auto_save_memory(user_id, query, llm_profile)
         if auto_memory_id:
             logger.info("本轮对话已自动记录背景信息 | user_id=%s | memory_id=%s", user_id, auto_memory_id)
-
         initial_state: dict[str, Any] = {
-            "messages": [HumanMessage(content=query)],
+            "messages": messages,
             "user_id": user_id,
             "memory_context": "",
             "sender": "",
@@ -549,6 +642,75 @@ def register_routes(app: FastAPI, session_store: Any, session_store_ready: bool)
             media_type="text/event-stream",
             headers=_streaming_headers(),
         )
+
+    @app.post("/api/v1/upload")
+    async def upload_file(
+        request: Request,
+        auth_context: AuthContext = Depends(_require_user_context),
+    ):
+        """上传文件接口"""
+        from fastapi import UploadFile
+        import tempfile
+        import os
+        from typing import Dict, Any
+        
+        token_subject = _require_subject(auth_context)
+        user_id = _resolve_effective_user_id(
+            token_subject=token_subject,
+            client_user_id=request.query_params.get("user_id"),
+            source="/api/v1/upload",
+        )
+        
+        # 检查请求是否包含文件
+        form = await request.form()
+        if 'file' not in form:
+            raise HTTPException(status_code=400, detail="未找到上传的文件")
+        
+        file: UploadFile = form['file']
+        
+        # 验证文件类型
+        allowed_types = {
+            'application/pdf': '.pdf',
+            'text/plain': '.txt',
+            'application/msword': '.doc',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+            'application/vnd.ms-excel': '.xls',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+            'text/csv': '.csv',
+            'image/jpeg': '.jpeg',
+            'image/png': '.png'
+        }
+        
+        if file.content_type not in allowed_types:
+            raise HTTPException(status_code=400, detail=f"不允许的文件类型: {file.content_type}")
+        
+        # 限制文件大小 (例如 10MB)
+        max_size = 10 * 1024 * 1024
+        contents = await file.read()
+        if len(contents) > max_size:
+            raise HTTPException(status_code=400, detail="文件大小超过限制 (最大10MB)")
+        
+        # 创建用户上传目录
+        upload_dir = f"./uploads/{user_id}"
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        # 保存文件
+        file_path = os.path.join(upload_dir, file.filename)
+        with open(file_path, "wb") as f:
+            f.write(contents)
+        
+        logger.info(f"文件上传成功 | user_id={user_id} | file_path={file_path} | size={len(contents)}")
+        # with open(file_path, 'r', encoding='utf-8') as f:
+        #     content = f.read()
+        #     logger.info(f"测试一下文件内容: {content}")
+        return {
+            "status": "success",
+            "message": "文件上传成功",
+            "file_path": file_path,
+            "filename": file.filename,
+            "size": len(contents),
+            "content_type": file.content_type
+        }
 
     @app.post("/api/v1/memory", response_model=MemoryResponse)
     async def save_memory(

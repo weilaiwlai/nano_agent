@@ -1472,7 +1472,7 @@ def handle_user_input(user_id: str) -> None:
             if clear_col.button("清理后端待审批", key="clear_backend_interrupt", use_container_width=True):
                 _clear_backend_pending_interrupt(user_id)
 
-    input_col, action_col = st.columns([9, 1])
+    input_col, upload_col, action_col = st.columns([8, 1, 1])
     with input_col:
         st.text_input(
             "请输入你的问题...",
@@ -1489,7 +1489,48 @@ def handle_user_input(user_id: str) -> None:
             use_container_width=True,
             disabled=pending_interrupt and not generating,
         )
-
+    uploaded_file = st.file_uploader(
+            "上传文件",
+            key="file_uploader",
+            label_visibility="collapsed",
+            accept_multiple_files=False,
+            type=["txt", "pdf", "docx", "xlsx", "csv", "jpg", "jpeg", "png"],
+            disabled=generating or pending_interrupt or in_progress_approval,
+        )
+    
+    # 处理文件上传
+    if uploaded_file is not None and action_clicked:
+        import requests
+        import io
+        
+        # 获取当前用户ID
+        current_user_id = user_id
+        
+        # 准备上传数据
+        files = {'file': (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
+        params = {'user_id': current_user_id}
+        
+        try:
+            # 调用后端上传API - 使用正确的API URL和认证头
+            headers = _request_headers()
+            upload_url = f"{AGENT_API_BASE_URL}/api/v1/upload"
+            response = requests.post(upload_url, files=files, params=params, headers=headers)
+            
+            if response.status_code == 200:
+                result = response.json()
+                st.success(f"文件上传成功: {uploaded_file.name}")
+                
+                # 将文件信息添加到对话中
+                # file_info = f"用户上传了文件: {uploaded_file.name} ({uploaded_file.type})，文件已可供AI分析。"
+                # st.session_state.messages.append({"role": "user", "content": file_info})
+                
+                # # 不直接修改widget状态，而是触发页面重载来重置上传器
+                # # st.rerun()
+            else:
+                st.error(f"文件上传失败: {response.json().get('detail', '未知错误')}")
+        except Exception as e:
+            st.error(f"上传过程中出错: {str(e)}")
+    
     if action_clicked and generating:
         stop_event = st.session_state.get("chat_stop_event")
         if isinstance(stop_event, threading.Event):
