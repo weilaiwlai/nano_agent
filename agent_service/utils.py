@@ -18,6 +18,7 @@ load_dotenv()
 from config import (
     ALLOWED_LLM_BASE_URLS,
     AUTO_MEMORY_MAX_LEN,
+    BUSINESS_MEMORY_PATTERN,
     DEBUG_MODE,
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_FALLBACK_BASE_URL,
@@ -53,13 +54,14 @@ def _get_memory_manager() -> UserMemoryManager:
 
 
 def _should_auto_save_memory(query: str) -> bool:
-    """判断用户输入是否应自动写入长期记忆。"""
+    """判断用户输入是否应自动写入长期记忆（含业务偏好识别）。"""
     normalized_query = query.strip()
     if not normalized_query:
         return False
     if len(normalized_query) < 4 or len(normalized_query) > AUTO_MEMORY_MAX_LEN:
         return False
-    return bool(MEMORY_FACT_PATTERN.search(normalized_query))
+    # 通用背景事实 + 业务偏好双模式匹配
+    return bool(MEMORY_FACT_PATTERN.search(normalized_query) or BUSINESS_MEMORY_PATTERN.search(normalized_query))
 
 
 def _is_production_environment() -> bool:
@@ -430,7 +432,11 @@ def _try_auto_save_memory(
 
     try:
         manager = _get_memory_manager()
-        memory_text = f"用户自述背景：{query.strip()}"
+        # 根据匹配模式区分业务偏好和通用背景
+        if BUSINESS_MEMORY_PATTERN.search(query.strip()):
+            memory_text = f"用户业务偏好：{query.strip()}"
+        else:
+            memory_text = f"用户自述背景：{query.strip()}"
         memory_id = manager.save_preference(
             user_id=user_id,
             preference_text=memory_text,

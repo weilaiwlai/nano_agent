@@ -1585,6 +1585,98 @@ def delete_conversation(conversation_id: str) -> None:
             else:
                 new_conversation()
 
+def render_dashboard(user_id: str) -> None:
+    """经营看板页面 - 快捷查询和 KPI 展示。"""
+    st.subheader("企业经营分析看板")
+
+    # ── 快捷查询按钮区 ──
+    st.markdown("#### 快捷查询")
+    col1, col2, col3, col4 = st.columns(4)
+
+    quick_queries = {
+        "本月销售概览": "帮我查一下本月的销售总额、订单数和客单价",
+        "区域销售排名": "查看各区域的销售额排名，生成柱状图",
+        "库存预警": "帮我查一下库存低于安全库存的商品清单",
+        "热销产品Top10": "查看本月销售额最高的前10个产品",
+    }
+
+    with col1:
+        if st.button("本月销售概览", use_container_width=True, key="dash_sales_overview"):
+            _send_quick_query(user_id, quick_queries["本月销售概览"])
+    with col2:
+        if st.button("区域销售排名", use_container_width=True, key="dash_region_rank"):
+            _send_quick_query(user_id, quick_queries["区域销售排名"])
+    with col3:
+        if st.button("库存预警", use_container_width=True, key="dash_inventory_alert"):
+            _send_quick_query(user_id, quick_queries["库存预警"])
+    with col4:
+        if st.button("热销产品Top10", use_container_width=True, key="dash_top_products"):
+            _send_quick_query(user_id, quick_queries["热销产品Top10"])
+
+    col5, col6, col7, col8 = st.columns(4)
+    more_queries = {
+        "品类销售占比": "各品类的销售占比是多少？用饼图展示",
+        "财务月报趋势": "最近6个月的营收和利润趋势如何？",
+        "客户等级分析": "按客户等级统计销售额和订单数",
+        "滞销商品预警": "有哪些商品超过30天没有出库？",
+    }
+    with col5:
+        if st.button("品类销售占比", use_container_width=True, key="dash_category_pie"):
+            _send_quick_query(user_id, more_queries["品类销售占比"])
+    with col6:
+        if st.button("财务月报趋势", use_container_width=True, key="dash_finance_trend"):
+            _send_quick_query(user_id, more_queries["财务月报趋势"])
+    with col7:
+        if st.button("客户等级分析", use_container_width=True, key="dash_customer_level"):
+            _send_quick_query(user_id, more_queries["客户等级分析"])
+    with col8:
+        if st.button("滞销商品预警", use_container_width=True, key="dash_slow_moving"):
+            _send_quick_query(user_id, more_queries["滞销商品预警"])
+
+    # ── 常用分析场景 ──
+    st.markdown("---")
+    st.markdown("#### 常用分析场景")
+    st.caption("点击下方按钮可快速发起对应的分析对话")
+
+    scene_col1, scene_col2 = st.columns(2)
+    with scene_col1:
+        st.info("**销售分析**\n- 同比/环比趋势\n- 区域对比\n- 品类拆解\n- 客户价值分析")
+    with scene_col2:
+        st.info("**库存管理**\n- 缺货预警\n- 滞销分析\n- 周转率计算\n- 补货建议")
+
+    # ── 报告模板 ──
+    st.markdown("---")
+    st.markdown("#### 快速生成报告")
+    report_col1, report_col2, report_col3 = st.columns(3)
+    with report_col1:
+        if st.button("生成月度经营报告", use_container_width=True, key="dash_monthly_report"):
+            _send_quick_query(user_id, "帮我生成本月的经营分析报告，包含销售、库存和财务概览，用 Markdown 表格格式")
+    with report_col2:
+        if st.button("生成库存健康报告", use_container_width=True, key="dash_inventory_report"):
+            _send_quick_query(user_id, "帮我生成库存健康分析报告，包含缺货/滞销预警和周转率分析")
+    with report_col3:
+        if st.button("生成竞品分析报告", use_container_width=True, key="dash_competitor_report"):
+            _send_quick_query(user_id, "搜索一下最近同行企业的动态，帮我做个竞品分析摘要")
+
+
+def _send_quick_query(user_id: str, query: str) -> None:
+    """将快捷查询发送到智能对话。"""
+    # 初始化对话
+    if "conversations" not in st.session_state:
+        st.session_state.conversations = {"default": []}
+        st.session_state.current_conversation_id = "default"
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+
+    # 添加用户消息并启动对话
+    st.session_state.messages.append({"role": "user", "content": query})
+    current_conv_id = st.session_state.current_conversation_id
+    if current_conv_id not in st.session_state.conversations:
+        st.session_state.conversations[current_conv_id] = st.session_state.messages
+    _start_chat_stream(user_id, query)
+    rerun_app()
+
+
 def main() -> None:
     st.set_page_config(page_title="NanoAgent 前端", page_icon=":robot_face:", layout="wide")
     init_session_state()
@@ -1599,8 +1691,7 @@ def main() -> None:
         st.session_state.messages = st.session_state.conversations[current_conv_id]
     user_id = render_sidebar()
 
-    st.title("NanoAgent")
-    st.caption(f"当前用户：`{user_id}`")
+    st.title("NanoAgent 经营分析助手")
 
     session_id = _active_session_id()
     if session_id:
@@ -1609,10 +1700,17 @@ def main() -> None:
     else:
         st.caption("当前 AI 会话：未启用（将使用后端默认配置）")
 
-    render_chat_history()
-    _run_deferred_approval_if_any(user_id)
-    handle_user_input(user_id)
-    render_interrupt_panel(user_id)
+    # ── Tab 切换：智能对话 / 经营看板 ──
+    tab_chat, tab_dashboard = st.tabs(["智能对话", "经营看板"])
+
+    with tab_chat:
+        render_chat_history()
+        _run_deferred_approval_if_any(user_id)
+        handle_user_input(user_id)
+        render_interrupt_panel(user_id)
+
+    with tab_dashboard:
+        render_dashboard(user_id)
 
 
 if __name__ == "__main__":

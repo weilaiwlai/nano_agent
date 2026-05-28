@@ -12,7 +12,7 @@ from config import (
     SMTP_PASSWORD, SMTP_FROM, SMTP_USE_TLS, SMTP_USE_SSL, SMTP_TIMEOUT_SECONDS,
     REPORT_MAX_CONTENT_CHARS, DEBUG_MODE, logger
 )
-from utils import _json_response, _truncate_text, _mask_email, _is_valid_email, _is_report_email_allowed, _prepare_report_email_payload
+from utils import _json_response, _truncate_text, _mask_email, _is_valid_email, _is_report_email_allowed, _prepare_report_email_payload, _build_html_report
 
 
 async def send_report_tool(email: str, content: str) -> str:
@@ -52,6 +52,9 @@ async def send_report_tool(email: str, content: str) -> str:
         timestamp=timestamp,
     )
 
+    # 生成 HTML 版本的报告正文
+    html_body = _build_html_report(normalized_content)
+
     if not _is_report_email_allowed(normalized_email):
         return _json_response(
             {
@@ -67,7 +70,7 @@ async def send_report_tool(email: str, content: str) -> str:
 
     if provider == "smtp":
         return await _send_smtp_email(
-            normalized_email, masked_email, mail_body, attachment_bytes, 
+            normalized_email, masked_email, mail_body, html_body, attachment_bytes,
             attachment_filename, downgraded, timestamp, normalized_content
         )
     else:
@@ -78,7 +81,7 @@ async def send_report_tool(email: str, content: str) -> str:
 
 
 async def _send_smtp_email(
-    email: str, masked_email: str, mail_body: str, attachment_bytes: Optional[bytes],
+    email: str, masked_email: str, mail_body: str, html_body: str, attachment_bytes: Optional[bytes],
     attachment_filename: Optional[str], downgraded: bool, timestamp: str, original_content: str
 ) -> str:
     """通过SMTP发送邮件。"""
@@ -103,6 +106,7 @@ async def _send_smtp_email(
             to_email=email,
             subject=REPORT_SUBJECT,
             content=mail_body,
+            html_content=html_body,
             attachment_bytes=attachment_bytes,
             attachment_filename=attachment_filename,
         )
@@ -214,15 +218,20 @@ def _smtp_send_report_sync(
     to_email: str,
     subject: str,
     content: str,
+    html_content: Optional[str] = None,
     attachment_bytes: Optional[bytes] = None,
     attachment_filename: Optional[str] = None,
 ) -> None:
-    """同步 SMTP 发送实现（由 asyncio.to_thread 调用）。"""
+    """同步 SMTP 发送实现（支持 HTML 双格式，由 asyncio.to_thread 调用）。"""
     message = EmailMessage()
     message["From"] = SMTP_FROM
     message["To"] = to_email
     message["Subject"] = subject
-    message.set_content(content)
+    if html_content:
+        message.set_content(content)
+        message.add_alternative(html_content, subtype="html")
+    else:
+        message.set_content(content)
     if attachment_bytes:
         filename = (attachment_filename or "report.txt").strip() or "report.txt"
         message.add_attachment(

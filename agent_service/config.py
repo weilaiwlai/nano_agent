@@ -117,6 +117,11 @@ SUPPORTED_PROVIDERS = tuple(PROVIDER_PRESETS.keys())
 MEMORY_FACT_PATTERN = re.compile(
     r"^(我是|我是一名|我目前|我在读|我来自|我叫|我的偏好|请记住|记住|以后请|我喜欢|我不喜欢|我想从事)"
 )
+# 业务偏好自动识别模式：用户提及关注的区域/指标/品类/收件人
+BUSINESS_MEMORY_PATTERN = re.compile(
+    r"(我关注|我负责|我主管|我管理|我主要看|帮我关注|重点关注|常用|默认区域|默认指标|"
+    r"发送给|报告发给|收件人|报表接收|关注.*区|负责.*区|关注.*指标|关注.*品类)"
+)
 PRODUCTION_ENV_ALIASES = {"production", "prod"}
 SENSITIVE_KEYWORDS = (
     "api_key",

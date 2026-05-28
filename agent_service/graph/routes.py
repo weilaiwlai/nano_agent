@@ -13,7 +13,7 @@ from typing import Literal
 
 from langchain_core.messages import AIMessage
 
-from .config import logger
+from .config import logger, REPORT_INTERNAL_EMAIL_DOMAINS, SENSITIVE_REPORT_KEYWORDS
 from .nodes import _normalize_supervisor_decision
 from .state import AgentState
 from .utils import _message_to_text
@@ -65,21 +65,86 @@ def _route_after_knowledge_worker(
     return "__end__"
 
 
+def _extract_email_from_tool_calls(messages: list) -> str:
+    """从 tool_calls 中提取目标邮箱地址。"""
+    import re
+    for msg in reversed(messages):
+        if not isinstance(msg, AIMessage) or not msg.tool_calls:
+            continue
+        for call in msg.tool_calls:
+            args = call.get("args", call.get("arguments", {}))
+            if isinstance(args, dict):
+                email = str(args.get("email", "")).strip()
+                if re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+                    return email.lower()
+    return ""
+
+
+def _email_domain(email: str) -> str:
+    """提取邮箱域名。"""
+    if "@" not in email:
+        return ""
+    return email.split("@", 1)[1].lower()
+
+
+def _has_sensitive_content(messages: list) -> bool:
+    """检查最近消息中是否包含敏感业务关键词。"""
+    for msg in reversed(messages):
+        if not isinstance(msg, AIMessage):
+            continue
+        text = _message_to_text(msg).lower()
+        return any(kw in text for kw in SENSITIVE_REPORT_KEYWORDS)
+    return False
+
+
 def _route_after_reporter(
     state: AgentState,
 ) -> Literal["permission_tools_node", "__end__"]:
-    """报告节点后路由。"""
+    """报告节点后路由（HITL 权限分级）。
+
+    分级策略：
+    - 发送到内部域名的普通报告 → 自动放行（跳过 permission_tools_node）
+    - 发送到外部域名的报告 → 需要 HITL 审批
+    - 包含敏感财务关键词的报告 → 强制 HITL 审批（无论内外部）
+    - 无工具调用 → 结束
+    """
     messages = state.get("messages", [])
     if not messages:
         return "__end__"
 
     last_message = messages[-1]
-    if isinstance(last_message, AIMessage) and last_message.tool_calls:
-        logger.info("路由 | reporter_node -> permission_tools_node | tool_calls=%d", len(last_message.tool_calls))
+    if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
+        logger.info("路由 | reporter_node -> END | reason=no_tool_calls")
+        return "__end__"
+
+    # HITL 权限分级判断
+    target_email = _extract_email_from_tool_calls(messages)
+    target_domain = _email_domain(target_email)
+    has_sensitive = _has_sensitive_content(messages)
+
+    # 包含敏感内容 → 强制审批
+    if has_sensitive:
+        logger.info(
+            "路由 | reporter_node -> permission_tools_node | reason=sensitive_content | email=%s",
+            target_email,
+        )
         return "permission_tools_node"
 
-    logger.info("路由 | reporter_node -> END | reason=no_tool_calls")
-    return "__end__"
+    # 内部域名 + 配置了内部域名白名单 → 自动放行
+    if target_domain and REPORT_INTERNAL_EMAIL_DOMAINS and target_domain in REPORT_INTERNAL_EMAIL_DOMAINS:
+        logger.info(
+            "路由 | reporter_node -> END | reason=internal_email_auto_approve | domain=%s",
+            target_domain,
+        )
+        return "__end__"
+
+    # 其他情况（外部域名或未配置内部域名白名单）→ 需要审批
+    logger.info(
+        "路由 | reporter_node -> permission_tools_node | reason=external_or_unknown | email=%s | domain=%s",
+        target_email,
+        target_domain,
+    )
+    return "permission_tools_node"
 
 
 def _route_after_assistant(state: AgentState) -> Literal["skills_tools_node", "__end__"]:

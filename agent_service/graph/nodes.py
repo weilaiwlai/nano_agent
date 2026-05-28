@@ -142,8 +142,8 @@ async def supervisor_node(
     """主管节点：语义路由到 KnowledgeWorker / Reporter / Assistant / FINISH。"""
     user_id = state.get("user_id", "").strip()
     history = _sanitize_history_for_model(state.get("messages", []),config=config)
-    memory_context = state.get("memory_context", "")
-    messages = state.get("messages", [])
+    memory_context = state.get("memory_context", "") # 长期记忆上下文
+    messages = state.get("messages", []) # 最新消息在最后
     if len(messages) > MAX_MODEL_HISTORY_MESSAGES:
         messages = messages[:-MAX_MODEL_HISTORY_MESSAGES]
         sum_messages = None
@@ -400,7 +400,7 @@ async def assistant_node(
 
 async def skills_tools_node(state: AgentState, config: RunnableConfig) -> dict[str, list[BaseMessage] | str]:
     skill_name = state["messages"][-1].content.strip() if state.get("messages") else None
-    skill = registry.get_skill(skill_name)
+    skill = registry.get_skill(skill_name)  #AgentSkill
     
     logger.info(
         "节点开始 | skills_tools_node | skill=%s",

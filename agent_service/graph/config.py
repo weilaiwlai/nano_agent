@@ -96,6 +96,21 @@ MAX_MODEL_HISTORY_MESSAGES = int(os.getenv("MAX_MODEL_HISTORY_MESSAGES", "6"))
 REPORT_CONTENT_SOFT_LIMIT = int(os.getenv("REPORT_CONTENT_SOFT_LIMIT", "8000"))
 EMAIL_DRAFT_TARGET_CHARS = int(os.getenv("EMAIL_DRAFT_TARGET_CHARS", "2000"))
 
+# HITL 权限分级：内部邮箱域名（发送到这些域名的报告免审批）
+_REPORT_INTERNAL_DOMAINS_RAW = os.getenv("REPORT_INTERNAL_EMAIL_DOMAINS", "").strip()
+REPORT_INTERNAL_EMAIL_DOMAINS: set[str] = set()
+if _REPORT_INTERNAL_DOMAINS_RAW:
+    REPORT_INTERNAL_EMAIL_DOMAINS = {
+        d.strip().lower()
+        for d in _REPORT_INTERNAL_DOMAINS_RAW.split(",")
+        if d.strip()
+    }
+# HITL 权限分级：包含敏感关键词的报告强制审批
+SENSITIVE_REPORT_KEYWORDS = (
+    "财务", "利润", "成本", "营收", "revenue", "profit", "cost",
+    "薪资", "工资", "salary", "机密", "confidential",
+)
+
 _graph_runtime_globals: dict[str, Any] = {
     "_llm_cache": {},
     "_non_stream_llm_cache": {},
