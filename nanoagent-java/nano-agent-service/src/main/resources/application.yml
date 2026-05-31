@@ -1,0 +1,76 @@
+spring:
+  application:
+    name: nano-agent-service
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DB:0}
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      base-url: ${OPENAI_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+      chat:
+        options:
+          model: ${OPENAI_MODEL:qwen3.5-plus}
+          temperature: 0.0
+      embedding:
+        options:
+          model: ${EMBEDDING_MODEL:text-embedding-v3}
+    chroma:
+      api:
+        host: ${CHROMA_HOST:http://localhost}
+        port: ${CHROMA_PORT:8001}
+    mcp:
+      client:
+        enabled: true
+        name: nano-agent-mcp-client
+        version: 1.0.0
+        type: SYNC
+        request-timeout: 30s
+
+server:
+  port: ${AGENT_PORT:8080}
+  address: ${AGENT_HOST:0.0.0.0}
+
+nanoagent:
+  environment: ${ENVIRONMENT:development}
+  debug-mode: ${DEBUG:false}
+  auto-memory-max-len: ${AUTO_MEMORY_MAX_LEN:120}
+  graph-recursion-limit: ${GRAPH_RECURSION_LIMIT:25}
+  max-model-history-messages: ${MAX_MODEL_HISTORY_MESSAGES:6}
+  report-content-soft-limit: ${REPORT_CONTENT_SOFT_LIMIT:8000}
+  email-draft-target-chars: ${EMAIL_DRAFT_TARGET_CHARS:2000}
+  max-tool-payload-length: ${TOOL_PAYLOAD_MAX_LENGTH:400}
+  allowed-llm-base-urls: ${ALLOWED_LLM_BASE_URLS:}
+  tavily-api-key: ${TAVILY_API_KEY:}
+  mcp:
+    base-url: ${MCP_BASE_URL:http://localhost:8000}
+    service-token: ${MCP_SERVICE_TOKEN:}
+  auth:
+    require-api-auth: ${REQUIRE_API_AUTH:false}
+    require-user-sub: ${AUTH_REQUIRE_USER_SUB:true}
+    allow-api-key-fallback: ${AUTH_ALLOW_API_KEY_FALLBACK:false}
+    allowed-api-keys: ${AGENT_API_KEYS:}
+    jwt-jwks-url: ${JWT_JWKS_URL:}
+    jwt-issuer: ${JWT_ISSUER:}
+    jwt-audience: ${JWT_AUDIENCE:}
+    jwt-hs256-secret: ${JWT_HS256_SECRET:}
+    jwt-algorithms: ${JWT_ALGORITHMS:RS256,ES256,HS256}
+    jwt-leeway-seconds: ${JWT_LEEWAY_SECONDS:30}
+  cors:
+    allow-origins: ${CORS_ALLOW_ORIGINS:http://localhost:8501,http://127.0.0.1:8501}
+    allow-credentials: ${CORS_ALLOW_CREDENTIALS:true}
+  session:
+    master-key: ${LLM_SESSION_MASTER_KEY:}
+    ttl-seconds: ${LLM_SESSION_TTL_SECONDS:3600}
+    max-ttl-seconds: ${LLM_SESSION_MAX_TTL_SECONDS:86400}
+    require-llm-session: ${REQUIRE_LLM_SESSION:true}
+  embedding:
+    default-model: ${EMBEDDING_MODEL:text-embedding-v3}
+
+logging:
+  level:
+    com.nanoagent: ${LOG_LEVEL:INFO}
+    org.springframework.ai: DEBUG

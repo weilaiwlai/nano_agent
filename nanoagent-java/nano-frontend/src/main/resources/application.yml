@@ -1,0 +1,21 @@
+spring:
+  application:
+    name: nano-frontend
+  thymeleaf:
+    cache: false
+    prefix: classpath:/templates/
+    suffix: .html
+
+server:
+  port: ${FRONTEND_PORT:8501}
+  address: ${FRONTEND_HOST:0.0.0.0}
+
+nanoagent:
+  frontend:
+    agent-api-base-url: ${AGENT_API_BASE_URL:http://localhost:8080}
+    agent-api-token: ${AGENT_API_TOKEN:}
+    page-title: ${PAGE_TITLE:NanoAgent}
+
+logging:
+  level:
+    com.nanoagent: ${LOG_LEVEL:INFO}

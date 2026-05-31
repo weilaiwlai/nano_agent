@@ -1,0 +1,53 @@
+spring:
+  application:
+    name: nano-mcp-server
+  r2dbc:
+    url: ${DATABASE_URL:r2dbc:postgresql://localhost:5432/nanoagent}
+    username: ${DATABASE_USER:postgres}
+    password: ${DATABASE_PASSWORD:postgres}
+  mail:
+    host: ${SMTP_HOST:}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: ${SMTP_AUTH:true}
+          starttls:
+            enable: ${SMTP_STARTTLS:true}
+
+server:
+  port: ${MCP_PORT:8000}
+  address: ${MCP_HOST:0.0.0.0}
+
+nanoagent:
+  mcp:
+    require-auth: ${MCP_REQUIRE_AUTH:true}
+    service-token: ${MCP_SERVICE_TOKEN:}
+    max-log-text-length: ${MCP_MAX_LOG_TEXT_LENGTH:240}
+    query-row-limit: ${MCP_QUERY_ROW_LIMIT:200}
+    query-timeout-ms: ${MCP_QUERY_TIMEOUT_MS:3000}
+    sql-max-length: ${MCP_SQL_MAX_LENGTH:4000}
+    report:
+      provider: ${REPORT_PROVIDER:mock}
+      max-content-chars: ${REPORT_MAX_CONTENT_CHARS:12000}
+      soft-body-chars: ${REPORT_SOFT_BODY_CHARS:2000}
+      summary-preview-chars: ${REPORT_SUMMARY_PREVIEW_CHARS:500}
+      attach-overflow: ${REPORT_ATTACH_OVERFLOW:true}
+      attachment-prefix: ${REPORT_ATTACHMENT_PREFIX:nanoagent_report}
+      subject: ${REPORT_SUBJECT:NanoAgent 自动报告}
+      allowed-email-domains: ${REPORT_ALLOWED_EMAIL_DOMAINS:}
+    smtp:
+      host: ${SMTP_HOST:}
+      port: ${SMTP_PORT:587}
+      username: ${SMTP_USERNAME:}
+      password: ${SMTP_PASSWORD:}
+      from: ${SMTP_FROM:}
+      use-tls: ${SMTP_USE_TLS:true}
+      use-ssl: ${SMTP_USE_SSL:false}
+      timeout-seconds: ${SMTP_TIMEOUT_SECONDS:10}
+
+logging:
+  level:
+    com.nanoagent: ${LOG_LEVEL:INFO}
