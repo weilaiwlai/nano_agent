@@ -1,28 +1,49 @@
-# Secrets
+# ── Secrets & 环境配置 ──
 .env
 .env.*
 !.env.example
 
-# Python cache / build
+# ── Python 缓存 / 构建产物 ──
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+*.egg-info/
+*.egg
+dist/
+build/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 
-# Virtual environments
+# ── 虚拟环境 ──
 .venv/
 venv/
 env/
 
-# Logs and local artifacts
+# ── 日志 ──
 logs/
 *.log
 
-# OS / editor
+# ── OS / 编辑器 ──
 .DS_Store
 Thumbs.db
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
+
+# ── 向量数据库（ChromaDB 本地持久化）──
+agent_service/data/chroma/
+
+# ── MCP Server 本地数据 ──
+mcp_server/agentdata/
+
+# ── 调度任务持久化 ──
+.claude/scheduled_tasks.json
+
+# ── 临时文件 ──
+result_*.txt
+*.tmp
+*.bak
