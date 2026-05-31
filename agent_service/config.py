@@ -137,3 +137,13 @@ SENSITIVE_KEYWORDS = (
 )
 MAX_TOOL_PAYLOAD_LENGTH = int(os.getenv("TOOL_PAYLOAD_MAX_LENGTH", "400"))
 _SUPERVISOR_ROUTE_WORDS = {"CONTINUE", "END", "FINISH", "NEXT", "PROCEED", "ROUTE", "STEP"}
+
+# 报告调度器配置
+SCHEDULER_ENABLED = os.getenv("SCHEDULER_ENABLED", "true").lower() == "true"
+DB_DSN = os.getenv("DB_DSN", "postgresql://{user}:{password}@{host}:{port}/{db}".format(
+    user=os.getenv("POSTGRES_USER", "postgres"),
+    password=os.getenv("POSTGRES_PASSWORD", "postgres"),
+    host=os.getenv("POSTGRES_HOST", "localhost"),
+    port=os.getenv("POSTGRES_PORT", "5432"),
+    db=os.getenv("POSTGRES_DB", "nano_agent"),
+))

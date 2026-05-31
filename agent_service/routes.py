@@ -226,8 +226,14 @@ def _streaming_headers() -> dict[str, str]:
     }
 
 
-def register_routes(app: FastAPI, session_store: Any, session_store_ready: bool) -> None:
+def register_routes(app: FastAPI, session_store: Any, session_store_ready: bool, get_report_scheduler: Any = None) -> None:
     """注册所有路由到 FastAPI 应用。"""
+
+    def _scheduler():
+        """获取调度器实例（延迟解析）。"""
+        if get_report_scheduler:
+            return get_report_scheduler()
+        return None
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONResponse:
@@ -932,3 +938,133 @@ def register_routes(app: FastAPI, session_store: Any, session_store_ready: bool)
         except Exception as e:
             logger.exception("获取用户线程列表失败 | user_id=%s | error=%s", resolved_user_id, e)
             raise HTTPException(status_code=500, detail="获取用户线程列表失败")
+
+    # ── 订阅管理 API ──
+
+    class SubscriptionCreateRequest(BaseModel):
+        """创建订阅请求。"""
+        user_id: str = Field(..., min_length=1)
+        report_type: str = Field(..., description="报告类型: daily_sales, weekly_summary, monthly_finance, anomaly_digest")
+        schedule_cron: str = Field(..., description="Cron 表达式，如 '0 9 * * *'")
+        recipients: list[str] = Field(default_factory=list, description="邮件接收人列表")
+        delivery_method: str = Field(default="email", description="分发方式: email, chat")
+        filters: dict = Field(default_factory=dict, description="过滤条件")
+        description: str = Field(default="", description="订阅描述")
+
+    @app.post(
+        "/api/v1/subscriptions",
+        dependencies=[Depends(_require_api_auth)],
+    )
+    async def create_subscription(
+        req: SubscriptionCreateRequest,
+        auth_context: AuthContext = Depends(_require_user_context),
+    ):
+        """创建定时报告订阅。"""
+        if not _scheduler():
+            raise HTTPException(status_code=503, detail="调度服务未启用")
+
+        token_subject = _require_subject(auth_context)
+        resolved_user_id = _resolve_effective_user_id(
+            token_subject=token_subject,
+            client_user_id=req.user_id,
+            source="/api/v1/subscriptions",
+        )
+
+        try:
+            result = await _scheduler().create_subscription(
+                user_id=resolved_user_id,
+                report_type=req.report_type,
+                schedule_cron=req.schedule_cron,
+                recipients=req.recipients,
+                delivery_method=req.delivery_method,
+                filters=req.filters,
+                description=req.description,
+            )
+            return result
+        except Exception as exc:
+            logger.exception("创建订阅失败 | user_id=%s | error=%s", resolved_user_id, exc)
+            raise HTTPException(status_code=500, detail="创建订阅失败") from exc
+
+    @app.get(
+        "/api/v1/subscriptions/{user_id}",
+        dependencies=[Depends(_require_api_auth)],
+    )
+    async def list_subscriptions(
+        user_id: str = Path(..., min_length=1),
+        auth_context: AuthContext = Depends(_require_user_context),
+    ):
+        """列出用户的定时报告订阅。"""
+        if not _scheduler():
+            return {"subscriptions": []}
+
+        token_subject = _require_subject(auth_context)
+        resolved_user_id = _resolve_effective_user_id(
+            token_subject=token_subject,
+            client_user_id=user_id,
+            source="/api/v1/subscriptions",
+        )
+
+        try:
+            subs = await _scheduler().list_subscriptions(resolved_user_id)
+            return {"user_id": resolved_user_id, "subscriptions": subs}
+        except Exception as exc:
+            logger.exception("获取订阅列表失败 | user_id=%s | error=%s", resolved_user_id, exc)
+            raise HTTPException(status_code=500, detail="获取订阅列表失败") from exc
+
+    @app.delete(
+        "/api/v1/subscriptions/{sub_id}",
+        dependencies=[Depends(_require_api_auth)],
+    )
+    async def delete_subscription(
+        sub_id: int = Path(..., gt=0),
+        user_id: str = Query(..., min_length=1),
+        auth_context: AuthContext = Depends(_require_user_context),
+    ):
+        """删除（停用）定时报告订阅。"""
+        if not _scheduler():
+            raise HTTPException(status_code=503, detail="调度服务未启用")
+
+        token_subject = _require_subject(auth_context)
+        resolved_user_id = _resolve_effective_user_id(
+            token_subject=token_subject,
+            client_user_id=user_id,
+            source="/api/v1/subscriptions",
+        )
+
+        try:
+            ok = await _scheduler().delete_subscription(sub_id, resolved_user_id)
+            if not ok:
+                raise HTTPException(status_code=404, detail="订阅不存在")
+            return {"status": "success", "message": "订阅已取消"}
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception("删除订阅失败 | sub_id=%s | error=%s", sub_id, exc)
+            raise HTTPException(status_code=500, detail="删除订阅失败") from exc
+
+    @app.get(
+        "/api/v1/scheduler/logs",
+        dependencies=[Depends(_require_api_auth)],
+    )
+    async def get_scheduler_logs(
+        user_id: str = Query(..., min_length=1),
+        limit: int = Query(20, ge=1, le=100),
+        auth_context: AuthContext = Depends(_require_user_context),
+    ):
+        """获取调度执行日志。"""
+        if not _scheduler():
+            return {"logs": []}
+
+        token_subject = _require_subject(auth_context)
+        resolved_user_id = _resolve_effective_user_id(
+            token_subject=token_subject,
+            client_user_id=user_id,
+            source="/api/v1/scheduler/logs",
+        )
+
+        try:
+            logs = await _scheduler().get_scheduler_logs(resolved_user_id, limit)
+            return {"user_id": resolved_user_id, "logs": logs}
+        except Exception as exc:
+            logger.exception("获取调度日志失败 | user_id=%s | error=%s", resolved_user_id, exc)
+            raise HTTPException(status_code=500, detail="获取调度日志失败") from exc

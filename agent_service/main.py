@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from graph import init as graph_runtime
 from session_store import LLMSessionStore
+from scheduler.scheduler import ReportScheduler
 
 from config import (
     ALLOWED_LLM_BASE_URLS,
@@ -16,6 +17,7 @@ from config import (
     AUTH_REQUIRE_USER_SUB,
     CORS_ALLOW_CREDENTIALS,
     CORS_ALLOW_ORIGINS,
+    DB_DSN,
     ENVIRONMENT,
     JWT_HS256_SECRET,
     JWT_JWKS_URL,
@@ -25,6 +27,7 @@ from config import (
     LLM_SESSION_TTL_SECONDS,
     REDIS_URL,
     REQUIRE_API_AUTH,
+    SCHEDULER_ENABLED,
 )
 from utils import _is_production_environment
 from routes import register_routes
@@ -44,6 +47,7 @@ _session_store = LLMSessionStore(
     max_ttl_seconds=LLM_SESSION_MAX_TTL_SECONDS,
 )
 _session_store_ready = False
+_report_scheduler: ReportScheduler | None = None
 
 
 @asynccontextmanager
@@ -83,9 +87,17 @@ async def lifespan(_: FastAPI):
         _session_store_ready = False
         logger.warning("LLM Session Store 启动失败，将仅支持默认环境变量模式 | error=%s", exc)
 
+    # 启动报告调度器
+    global _report_scheduler
+    if SCHEDULER_ENABLED:
+        _report_scheduler = ReportScheduler(DB_DSN)
+        await _report_scheduler.start()
+
     try:
         yield
     finally:
+        if _report_scheduler:
+            await _report_scheduler.stop()
         try:
             await _session_store.shutdown()
         finally:
@@ -103,7 +115,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-register_routes(app, _session_store, _session_store_ready)
+def _get_report_scheduler():
+    return _report_scheduler
+
+register_routes(app, _session_store, _session_store_ready, _get_report_scheduler)
 
 
 if __name__ == "__main__":

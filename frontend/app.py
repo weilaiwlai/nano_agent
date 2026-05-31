@@ -1633,16 +1633,35 @@ def render_dashboard(user_id: str) -> None:
         if st.button("滞销商品预警", use_container_width=True, key="dash_slow_moving"):
             _send_quick_query(user_id, more_queries["滞销商品预警"])
 
+    # ── AI 智能分析 ──
+    st.markdown("---")
+    st.markdown("#### 🤖 AI 智能分析")
+    ai_col1, ai_col2, ai_col3, ai_col4 = st.columns(4)
+    with ai_col1:
+        if st.button("🔍 异常预警", use_container_width=True, key="dash_anomaly"):
+            _send_quick_query(user_id, "帮我检查最近的业务数据有没有异常，分析根因并给出行动建议")
+    with ai_col2:
+        if st.button("👥 RFM 客户分析", use_container_width=True, key="dash_rfm"):
+            _send_quick_query(user_id, "帮我做一次 RFM 客户分析，识别高价值客户和流失风险客户")
+    with ai_col3:
+        if st.button("📈 销售预测", use_container_width=True, key="dash_forecast"):
+            _send_quick_query(user_id, "预测一下未来30天的销售趋势，给出乐观、中性、悲观三种情景")
+    with ai_col4:
+        if st.button("⏰ 订阅报告", use_container_width=True, key="dash_subscribe"):
+            _send_quick_query(user_id, "我想订阅一份每天的销售日报，请帮我设置")
+
     # ── 常用分析场景 ──
     st.markdown("---")
     st.markdown("#### 常用分析场景")
     st.caption("点击下方按钮可快速发起对应的分析对话")
 
-    scene_col1, scene_col2 = st.columns(2)
+    scene_col1, scene_col2, scene_col3 = st.columns(3)
     with scene_col1:
         st.info("**销售分析**\n- 同比/环比趋势\n- 区域对比\n- 品类拆解\n- 客户价值分析")
     with scene_col2:
         st.info("**库存管理**\n- 缺货预警\n- 滞销分析\n- 周转率计算\n- 补货建议")
+    with scene_col3:
+        st.info("**AI 智能**\n- 异常预警 & 根因分析\n- RFM 客户分群\n- 销售预测 & 情景模拟\n- 定时报告订阅")
 
     # ── 报告模板 ──
     st.markdown("---")
