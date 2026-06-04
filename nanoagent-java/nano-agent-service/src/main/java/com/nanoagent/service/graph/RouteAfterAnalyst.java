@@ -7,16 +7,16 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
-public class RouteAfterKnowledgeWorker implements EdgeAction {
+public class RouteAfterAnalyst implements EdgeAction {
 
-    private static final Logger log = LoggerFactory.getLogger(RouteAfterKnowledgeWorker.class);
+    private static final Logger log = LoggerFactory.getLogger(RouteAfterAnalyst.class);
 
     @Override
     @SuppressWarnings("unchecked")
     public String apply(OverAllState state) {
         List<AgentState.Message> messages = (List<AgentState.Message>) state.value("messages").orElse(List.of());
         if (messages.isEmpty()) {
-            log.info("Route | knowledge_worker -> END | reason=no_messages");
+            log.info("Route | data_analyst -> END | reason=no_messages");
             return "FINISH";
         }
 
@@ -24,11 +24,11 @@ public class RouteAfterKnowledgeWorker implements EdgeAction {
         if (lastMessage.getType() == AgentState.Message.MessageType.AI
                 && lastMessage.getToolCalls() != null
                 && !lastMessage.getToolCalls().isEmpty()) {
-            log.info("Route | knowledge_worker -> tools_node | tool_calls={}", lastMessage.getToolCalls().size());
-            return "TOOLS";
+            log.info("Route | data_analyst -> high_risk_tools | tool_calls={}", lastMessage.getToolCalls().size());
+            return "HIGH_RISK_TOOLS";
         }
 
-        log.info("Route | knowledge_worker -> END | reason=no_tool_calls");
+        log.info("Route | data_analyst -> END | reason=no_tool_calls");
         return "FINISH";
     }
 }

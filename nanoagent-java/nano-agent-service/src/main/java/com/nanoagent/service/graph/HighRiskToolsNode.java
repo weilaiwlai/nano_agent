@@ -2,7 +2,6 @@ package com.nanoagent.service.graph;
 
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.alibaba.cloud.ai.graph.action.NodeAction;
-import com.nanoagent.service.graph.skills.SkillTools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -11,13 +10,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class SkillToolsExecutorNode implements NodeAction {
+public class HighRiskToolsNode implements NodeAction {
 
-    private static final Logger log = LoggerFactory.getLogger(SkillToolsExecutorNode.class);
+    private static final Logger log = LoggerFactory.getLogger(HighRiskToolsNode.class);
 
     private final McpToolClient mcpToolClient;
 
-    public SkillToolsExecutorNode(McpToolClient mcpToolClient) {
+    public HighRiskToolsNode(McpToolClient mcpToolClient) {
         this.mcpToolClient = mcpToolClient;
     }
 
@@ -26,7 +25,9 @@ public class SkillToolsExecutorNode implements NodeAction {
     public Map<String, Object> apply(OverAllState state) throws Exception {
         List<AgentState.Message> messages = (List<AgentState.Message>) state.value("messages").orElse(List.of());
         if (messages.isEmpty()) {
-            return Map.of("messages", messages);
+            Map<String, Object> result = new HashMap<>();
+            result.put("messages", messages);
+            return result;
         }
 
         AgentState.Message lastMessage = messages.get(messages.size() - 1);
@@ -34,25 +35,27 @@ public class SkillToolsExecutorNode implements NodeAction {
             return Map.of("messages", messages);
         }
 
+        String userId = (String) state.value("userId").orElse("");
+        String currentAgent = (String) state.value("currentAgent").orElse("data_analyst");
         List<AgentState.Message> newMessages = new ArrayList<>(messages);
 
         for (AgentState.ToolCall toolCall : lastMessage.getToolCalls()) {
             String toolName = toolCall.getName();
             Map<String, Object> args = toolCall.getArgs() instanceof Map ? (Map<String, Object>) toolCall.getArgs() : Map.of();
 
-            log.info("Skill tool executing | tool={}", toolName);
+            log.info("High risk tool executing | tool={} | user_id={} | current_agent={}", toolName, userId, currentAgent);
 
             try {
-                String result = executeSkillTool(toolName, args);
+                String result = executeHighRiskTool(toolName, args, userId);
                 newMessages.add(AgentState.Message.builder()
                         .type(AgentState.Message.MessageType.TOOL)
                         .content(result)
                         .name(toolName)
                         .toolCallId(toolCall.getId())
                         .build());
-                log.info("Skill tool completed | tool={} | result_len={}", toolName, result.length());
+                log.info("High risk tool completed | tool={} | result_len={}", toolName, result.length());
             } catch (Exception e) {
-                log.error("Skill tool error | tool={} | error={}", toolName, e.getMessage());
+                log.error("High risk tool error | tool={} | error={}", toolName, e.getMessage());
                 newMessages.add(AgentState.Message.builder()
                         .type(AgentState.Message.MessageType.TOOL)
                         .content("{\"status\":\"error\",\"tool\":\"" + toolName + "\",\"message\":\"" + e.getMessage() + "\"}")
@@ -67,26 +70,20 @@ public class SkillToolsExecutorNode implements NodeAction {
         return result;
     }
 
-    private String executeSkillTool(String toolName, Map<String, Object> args) {
+    private String executeHighRiskTool(String toolName, Map<String, Object> args, String userId) {
         return switch (toolName) {
-            case "run_skill_script" -> {
-                String scriptName = (String) args.getOrDefault("script_name", "");
-                List<String> scriptArgs = new ArrayList<>();
-                Object rawArgs = args.get("args");
-                if (rawArgs instanceof List<?> list) {
-                    for (Object item : list) {
-                        if (item != null) scriptArgs.add(item.toString());
-                    }
-                }
-                yield SkillTools.runSkillScript(scriptName, scriptArgs);
+            case "tool_query_database", "query_database" -> {
+                String sql = (String) args.getOrDefault("sql", "");
+                yield mcpToolClient.queryDatabaseTool(sql);
             }
-            case "read_reference" -> {
-                String filename = (String) args.getOrDefault("filename", "");
-                yield SkillTools.readReference(filename);
+            case "tool_send_report", "send_report" -> {
+                String email = (String) args.getOrDefault("email", "");
+                String content = (String) args.getOrDefault("content", "");
+                yield mcpToolClient.sendReportTool(email, content);
             }
             default -> {
-                log.warn("Unknown skill tool: {}", toolName);
-                yield "{\"status\":\"error\",\"tool\":\"" + toolName + "\",\"message\":\"Unknown skill tool\"}";
+                log.warn("Unknown high risk tool requested: {}", toolName);
+                yield "{\"status\":\"error\",\"tool\":\"" + toolName + "\",\"message\":\"Unknown high risk tool\"}";
             }
         };
     }

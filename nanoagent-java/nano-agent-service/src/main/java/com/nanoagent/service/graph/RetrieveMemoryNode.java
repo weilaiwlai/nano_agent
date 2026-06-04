@@ -53,7 +53,8 @@ public class RetrieveMemoryNode implements NodeAction {
         Map<String, Object> result = new HashMap<>();
         result.put("messages", messages);
         result.put("memoryContext", memoryContext);
-        result.put("sender", "");
+        result.put("currentAgent", "");
+        result.put("orchestratorContext", "");
         return result;
     }
 }

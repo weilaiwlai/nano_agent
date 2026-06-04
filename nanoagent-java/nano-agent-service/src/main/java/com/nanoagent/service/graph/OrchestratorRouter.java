@@ -7,35 +7,35 @@ import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
-public class SupervisorRouter implements EdgeAction {
+public class OrchestratorRouter implements EdgeAction {
 
-    private static final Logger log = LoggerFactory.getLogger(SupervisorRouter.class);
+    private static final Logger log = LoggerFactory.getLogger(OrchestratorRouter.class);
 
     @Override
     @SuppressWarnings("unchecked")
     public String apply(OverAllState state) {
-        String supervisorDecision = (String) state.value("supervisorDecision").orElse("");
+        String orchestratorDecision = (String) state.value("orchestratorDecision").orElse("");
 
-        if (supervisorDecision == null || supervisorDecision.isBlank()) {
+        if (orchestratorDecision == null || orchestratorDecision.isBlank()) {
             List<AgentState.Message> messages = (List<AgentState.Message>) state.value("messages").orElse(List.of());
             if (!messages.isEmpty()) {
                 AgentState.Message last = messages.get(messages.size() - 1);
                 if (last.getType() == AgentState.Message.MessageType.AI) {
-                    supervisorDecision = last.getContent();
+                    orchestratorDecision = last.getContent();
                 }
             }
         }
 
-        SupervisorDecision decision = SupervisorDecision.fromText(supervisorDecision);
+        OrchestratorDecision decision = OrchestratorDecision.fromText(orchestratorDecision);
 
         String route = switch (decision) {
-            case KNOWLEDGE_WORKER -> "KNOWLEDGE_WORKER";
+            case DATA_ANALYST -> "DATA_ANALYST";
             case REPORTER -> "REPORTER";
             case ASSISTANT -> "ASSISTANT";
             case FINISH -> "FINISH";
         };
 
-        log.info("Router | supervisor -> {}", route);
+        log.info("Router | orchestrator -> {}", route);
 
         return route;
     }

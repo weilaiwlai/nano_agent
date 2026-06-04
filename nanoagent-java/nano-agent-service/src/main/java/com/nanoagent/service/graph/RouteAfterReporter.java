@@ -24,8 +24,8 @@ public class RouteAfterReporter implements EdgeAction {
         if (lastMessage.getType() == AgentState.Message.MessageType.AI
                 && lastMessage.getToolCalls() != null
                 && !lastMessage.getToolCalls().isEmpty()) {
-            log.info("Route | reporter -> permission_tools | tool_calls={}", lastMessage.getToolCalls().size());
-            return "PERMISSION_TOOLS";
+            log.info("Route | reporter -> high_risk_tools | tool_calls={}", lastMessage.getToolCalls().size());
+            return "HIGH_RISK_TOOLS";
         }
 
         log.info("Route | reporter -> END | reason=no_tool_calls");

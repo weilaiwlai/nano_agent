@@ -2,6 +2,7 @@ package com.nanoagent.service.graph;
 
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.alibaba.cloud.ai.graph.action.NodeAction;
+import com.nanoagent.service.graph.skills.SkillTools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -10,13 +11,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class ToolsNode implements NodeAction {
+public class SafeToolsNode implements NodeAction {
 
-    private static final Logger log = LoggerFactory.getLogger(ToolsNode.class);
+    private static final Logger log = LoggerFactory.getLogger(SafeToolsNode.class);
 
     private final McpToolClient mcpToolClient;
 
-    public ToolsNode(McpToolClient mcpToolClient) {
+    public SafeToolsNode(McpToolClient mcpToolClient) {
         this.mcpToolClient = mcpToolClient;
     }
 
@@ -42,19 +43,19 @@ public class ToolsNode implements NodeAction {
             String toolName = toolCall.getName();
             Map<String, Object> args = toolCall.getArgs() instanceof Map ? (Map<String, Object>) toolCall.getArgs() : Map.of();
 
-            log.info("Tool node executing | tool={} | user_id={}", toolName, userId);
+            log.info("Safe tool executing | tool={} | user_id={}", toolName, userId);
 
             try {
-                String result = executeTool(toolName, args, userId);
+                String result = executeSafeTool(toolName, args, userId);
                 newMessages.add(AgentState.Message.builder()
                         .type(AgentState.Message.MessageType.TOOL)
                         .content(result)
                         .name(toolName)
                         .toolCallId(toolCall.getId())
                         .build());
-                log.info("Tool node completed | tool={} | result_len={}", toolName, result.length());
+                log.info("Safe tool completed | tool={} | result_len={}", toolName, result.length());
             } catch (Exception e) {
-                log.error("Tool node error | tool={} | error={}", toolName, e.getMessage());
+                log.error("Safe tool error | tool={} | error={}", toolName, e.getMessage());
                 newMessages.add(AgentState.Message.builder()
                         .type(AgentState.Message.MessageType.TOOL)
                         .content("{\"status\":\"error\",\"tool\":\"" + toolName + "\",\"message\":\"" + e.getMessage() + "\"}")
@@ -66,15 +67,12 @@ public class ToolsNode implements NodeAction {
 
         Map<String, Object> result = new HashMap<>();
         result.put("messages", newMessages);
+        result.put("currentAgent", "assistant");
         return result;
     }
 
-    private String executeTool(String toolName, Map<String, Object> args, String userId) {
+    private String executeSafeTool(String toolName, Map<String, Object> args, String userId) {
         return switch (toolName) {
-            case "tool_query_database", "query_database" -> {
-                String sql = (String) args.getOrDefault("sql", "");
-                yield mcpToolClient.queryDatabaseTool(sql);
-            }
             case "tool_get_current_time", "get_current_time" ->
                 mcpToolClient.getCurrentTimeTool();
             case "tool_search", "search" -> {
@@ -114,9 +112,25 @@ public class ToolsNode implements NodeAction {
                 String settingValue = (String) args.getOrDefault("setting_value", "");
                 yield mcpToolClient.upsertUserSettingTool(userId, settingKey, settingValue);
             }
+            // 技能工具
+            case "run_skill_script" -> {
+                String scriptName = (String) args.getOrDefault("script_name", "");
+                List<String> scriptArgs = new ArrayList<>();
+                Object rawArgs = args.get("args");
+                if (rawArgs instanceof List<?> list) {
+                    for (Object item : list) {
+                        if (item != null) scriptArgs.add(item.toString());
+                    }
+                }
+                yield SkillTools.runSkillScript(scriptName, scriptArgs);
+            }
+            case "read_reference" -> {
+                String filename = (String) args.getOrDefault("filename", "");
+                yield SkillTools.readReference(filename);
+            }
             default -> {
-                log.warn("Unknown tool requested: {}", toolName);
-                yield "{\"status\":\"error\",\"tool\":\"" + toolName + "\",\"message\":\"Unknown tool\"}";
+                log.warn("Unknown safe tool requested: {}", toolName);
+                yield "{\"status\":\"error\",\"tool\":\"" + toolName + "\",\"message\":\"Unknown safe tool\"}";
             }
         };
     }

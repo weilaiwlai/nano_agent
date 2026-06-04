@@ -292,18 +292,18 @@ public class ChatController {
         if (msg.getType() == AgentState.Message.MessageType.TOOL) return toolsNodeName(msg);
 
         String content = msg.getContent() != null ? msg.getContent().toUpperCase().trim() : "";
-        if (content.contains("KNOWLEDGE_WORKER")) return "knowledge_worker_node";
-        if (content.contains("REPORTER")) return "reporter_node";
-        if (content.contains("ASSISTANT")) return "assistant_node";
+        if (content.contains("DATA_ANALYST")) return "data_analyst";
+        if (content.contains("REPORTER")) return "reporter";
+        if (content.contains("ASSISTANT")) return "assistant";
         if (content.contains("FINISH")) return "";
-        if (msg.getType() == AgentState.Message.MessageType.AI) return "assistant_node";
+        if (msg.getType() == AgentState.Message.MessageType.AI) return "assistant";
         return "";
     }
 
     private String toolsNodeName(AgentState.Message msg) {
         String name = msg.getName() != null ? msg.getName() : "";
-        if (name.contains("send_report")) return "permission_tools_node";
-        return "tools_node";
+        if (name.contains("send_report") || name.contains("query_database")) return "high_risk_tools";
+        return "safe_tools";
     }
 
     private void sendEvent(SseEmitter emitter, String eventName, Object data) {

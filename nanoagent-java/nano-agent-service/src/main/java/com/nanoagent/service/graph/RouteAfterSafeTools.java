@@ -5,13 +5,13 @@ import com.alibaba.cloud.ai.graph.action.EdgeAction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class RouteAfterPermissionTools implements EdgeAction {
+public class RouteAfterSafeTools implements EdgeAction {
 
-    private static final Logger log = LoggerFactory.getLogger(RouteAfterPermissionTools.class);
+    private static final Logger log = LoggerFactory.getLogger(RouteAfterSafeTools.class);
 
     @Override
     public String apply(OverAllState state) {
-        log.info("Route | permission_tools -> reporter");
-        return "REPORTER";
+        log.info("Route | safe_tools -> assistant");
+        return "ASSISTANT";
     }
 }

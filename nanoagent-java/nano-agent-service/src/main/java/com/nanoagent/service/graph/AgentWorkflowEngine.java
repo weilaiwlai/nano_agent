@@ -58,56 +58,61 @@ public class AgentWorkflowEngine {
         try {
             StateGraph graph = new StateGraph();
 
-            graph.addNode("retrieve_memory",
+            // ── 添加节点 ──────────────────────────────────────────────────────
+            graph.addNode("memory_retriever",
                     AsyncNodeAction.node_async(new RetrieveMemoryNode(memoryManager, properties)));
-            graph.addNode("supervisor",
-                    AsyncNodeAction.node_async(new SupervisorNode(properties, llmClientConfig)));
-            graph.addNode("knowledge_worker",
-                    AsyncNodeAction.node_async(new KnowledgeWorkerNode(properties, llmClientConfig)));
-            graph.addNode("tools",
-                    AsyncNodeAction.node_async(new ToolsNode(mcpToolClient)));
+            graph.addNode("orchestrator",
+                    AsyncNodeAction.node_async(new OrchestratorNode(properties, llmClientConfig)));
+            graph.addNode("data_analyst",
+                    AsyncNodeAction.node_async(new DataAnalystNode(properties, llmClientConfig)));
             graph.addNode("reporter",
                     AsyncNodeAction.node_async(new ReporterNode(properties, llmClientConfig)));
-            graph.addNode("permission_tools",
-                    AsyncNodeAction.node_async(new PermissionToolsNode(mcpToolClient)));
             graph.addNode("assistant",
                     AsyncNodeAction.node_async(new AssistantNode(properties, llmClientConfig)));
-            graph.addNode("skills_tools",
-                    AsyncNodeAction.node_async(new SkillsToolsNode(properties, llmClientConfig, new SkillRegistry())));
-            graph.addNode("skill_tools_executor",
-                    AsyncNodeAction.node_async(new SkillToolsExecutorNode(mcpToolClient)));
+            graph.addNode("high_risk_tools",
+                    AsyncNodeAction.node_async(new HighRiskToolsNode(mcpToolClient)));
+            graph.addNode("safe_tools",
+                    AsyncNodeAction.node_async(new SafeToolsNode(mcpToolClient)));
 
-            graph.addEdge(StateGraph.START, "retrieve_memory");
-            graph.addEdge("retrieve_memory", "supervisor");
+            // ── 添加边 ──────────────────────────────────────────────────────
 
-            graph.addConditionalEdges("supervisor",
-                    AsyncEdgeAction.edge_async(new SupervisorRouter()),
-                    Map.of("KNOWLEDGE_WORKER", "knowledge_worker",
+            // 入口
+            graph.addEdge(StateGraph.START, "memory_retriever");
+            graph.addEdge("memory_retriever", "orchestrator");
+
+            // orchestrator 条件路由 → 三个 Agent
+            graph.addConditionalEdges("orchestrator",
+                    AsyncEdgeAction.edge_async(new OrchestratorRouter()),
+                    Map.of("DATA_ANALYST", "data_analyst",
                            "REPORTER", "reporter",
                            "ASSISTANT", "assistant",
                            "FINISH", StateGraph.END));
 
-            graph.addConditionalEdges("knowledge_worker",
-                    AsyncEdgeAction.edge_async(new RouteAfterKnowledgeWorker()),
-                    Map.of("TOOLS", "tools", "FINISH", StateGraph.END));
-            graph.addEdge("tools", "knowledge_worker");
+            // data_analyst 条件路由 → high_risk_tools 或 END
+            graph.addConditionalEdges("data_analyst",
+                    AsyncEdgeAction.edge_async(new RouteAfterAnalyst()),
+                    Map.of("HIGH_RISK_TOOLS", "high_risk_tools", "FINISH", StateGraph.END));
 
+            // reporter 条件路由 → high_risk_tools 或 END
             graph.addConditionalEdges("reporter",
                     AsyncEdgeAction.edge_async(new RouteAfterReporter()),
-                    Map.of("PERMISSION_TOOLS", "permission_tools", "FINISH", StateGraph.END));
-            graph.addEdge("permission_tools", "reporter");
+                    Map.of("HIGH_RISK_TOOLS", "high_risk_tools", "FINISH", StateGraph.END));
 
+            // assistant 条件路由 → safe_tools 或 END
             graph.addConditionalEdges("assistant",
                     AsyncEdgeAction.edge_async(new RouteAfterAssistant()),
-                    Map.of("SKILLS_TOOLS", "skills_tools", "FINISH", StateGraph.END));
-            graph.addConditionalEdges("skills_tools",
-                    AsyncEdgeAction.edge_async(new RouteAfterSkillsTools()),
-                    Map.of("SKILL_TOOLS_EXECUTOR", "skill_tools_executor",
-                           "ASSISTANT", "assistant"));
-            graph.addEdge("skill_tools_executor", "skills_tools");
+                    Map.of("SAFE_TOOLS", "safe_tools", "FINISH", StateGraph.END));
+
+            // high_risk_tools 回跳 → 根据 current_agent 回到对应 Worker
+            graph.addConditionalEdges("high_risk_tools",
+                    AsyncEdgeAction.edge_async(new RouteAfterHighRiskTools()),
+                    Map.of("DATA_ANALYST", "data_analyst", "REPORTER", "reporter"));
+
+            // safe_tools 回跳 → 回到 assistant
+            graph.addEdge("safe_tools", "assistant");
 
             CompileConfig compileConfig = CompileConfig.builder()
-                    .interruptBefore("permission_tools")
+                    .interruptBefore("high_risk_tools")
                     .build();
 
             compiledGraph = graph.compile(compileConfig);
@@ -132,11 +137,11 @@ public class AgentWorkflowEngine {
             if (result.isPresent()) {
                 OverAllState state = result.get();
 
-                if (isInterruptedAt(state, config, "permission_tools")) {
+                if (isInterruptedAt(state, config, "high_risk_tools")) {
                     Map<String, Object> interruptedResult = convertStateToResult(state, threadId);
-                    interruptedResult.put("interruptedAt", "permission_tools");
+                    interruptedResult.put("interruptedAt", "high_risk_tools");
                     activeConfigs.put(threadId, config);
-                    log.info("StateGraph interrupted | thread_id={} | at=permission_tools", threadId);
+                    log.info("StateGraph interrupted | thread_id={} | at=high_risk_tools", threadId);
                     return interruptedResult;
                 }
 
@@ -207,10 +212,11 @@ public class AgentWorkflowEngine {
                 "messages", messages,
                 "userId", userId,
                 "memoryContext", "",
-                "sender", "",
+                "currentAgent", "",
+                "orchestratorContext", "",
                 "llmProfile", llmProfile,
                 "threadId", threadId,
-                "supervisorDecision", "",
+                "orchestratorDecision", "",
                 "query", query != null ? query : "",
                 "activeSkill", ""
         ));
@@ -222,10 +228,11 @@ public class AgentWorkflowEngine {
         state.registerKeyAndStrategy("messages", replace);
         state.registerKeyAndStrategy("userId", replace);
         state.registerKeyAndStrategy("memoryContext", replace);
-        state.registerKeyAndStrategy("sender", replace);
+        state.registerKeyAndStrategy("currentAgent", replace);
+        state.registerKeyAndStrategy("orchestratorContext", replace);
         state.registerKeyAndStrategy("llmProfile", replace);
         state.registerKeyAndStrategy("threadId", replace);
-        state.registerKeyAndStrategy("supervisorDecision", replace);
+        state.registerKeyAndStrategy("orchestratorDecision", replace);
         state.registerKeyAndStrategy("query", replace);
         state.registerKeyAndStrategy("activeSkill", replace);
     }
@@ -240,7 +247,8 @@ public class AgentWorkflowEngine {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("messages", state.value("messages").orElse(List.of()));
         result.put("memoryContext", state.value("memoryContext").orElse(""));
-        result.put("sender", state.value("sender").orElse(""));
+        result.put("currentAgent", state.value("currentAgent").orElse(""));
+        result.put("orchestratorContext", state.value("orchestratorContext").orElse(""));
         result.put("thread_id", threadId);
         result.put("activeSkill", state.value("activeSkill").orElse(""));
         return result;
@@ -258,7 +266,7 @@ public class AgentWorkflowEngine {
                 .build());
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("messages", rejectionMessages);
-        result.put("sender", "Reporter");
+        result.put("currentAgent", "reporter");
         result.put("thread_id", threadId);
         return result;
     }

@@ -39,10 +39,10 @@ public class ReporterNode implements NodeAction {
     public Map<String, Object> apply(OverAllState state) throws Exception {
         String userId = (String) state.value("userId").orElse("");
         List<AgentState.Message> messages = (List<AgentState.Message>) state.value("messages").orElse(List.of());
-        List<AgentState.Message> history = trimSupervisorDecision(messages);
+        List<AgentState.Message> history = trimOrchestratorDecision(messages);
         String latestQuery = latestUserQuery(history);
 
-        log.info("Node start | reporter_node | user_id={} | history_len={}", userId, history.size());
+        log.info("Node start | reporter | user_id={} | history_len={}", userId, history.size());
 
         if (hasRecentSendReportResult(history)) {
             for (int i = history.size() - 1; i >= 0; i--) {
@@ -56,10 +56,10 @@ public class ReporterNode implements NodeAction {
                                 .type(AgentState.Message.MessageType.AI)
                                 .content(summary)
                                 .build());
-                        log.info("Node end | reporter_node | user_id={} | mode=post_send_summary", userId);
+                        log.info("Node end | reporter | user_id={} | mode=post_send_summary", userId);
                         Map<String, Object> result = new HashMap<>();
                         result.put("messages", newMessages);
-                        result.put("sender", "Reporter");
+                        result.put("currentAgent", "reporter");
                         return result;
                     }
                 }
@@ -71,7 +71,7 @@ public class ReporterNode implements NodeAction {
                     .build());
             Map<String, Object> result = new HashMap<>();
             result.put("messages", newMessages);
-            result.put("sender", "Reporter");
+            result.put("currentAgent", "reporter");
             return result;
         }
 
@@ -83,10 +83,10 @@ public class ReporterNode implements NodeAction {
                         .type(AgentState.Message.MessageType.AI)
                         .content("我已将本轮需求判定为'内容起草/普通对话'，不会直接发送邮件。如果你确认要发送，请明确回复：确认发送到 xxx@xxx.com。")
                         .build());
-                log.info("Node end | reporter_node | user_id={} | reason=not_explicit_execute_intent", userId);
+                log.info("Node end | reporter | user_id={} | reason=not_explicit_execute_intent", userId);
                 Map<String, Object> result = new HashMap<>();
                 result.put("messages", newMessages);
-                result.put("sender", "Reporter");
+                result.put("currentAgent", "reporter");
                 return result;
             }
 
@@ -101,7 +101,7 @@ public class ReporterNode implements NodeAction {
                         .build());
                 Map<String, Object> result = new HashMap<>();
                 result.put("messages", newMessages);
-                result.put("sender", "Reporter");
+                result.put("currentAgent", "reporter");
                 return result;
             }
 
@@ -113,7 +113,7 @@ public class ReporterNode implements NodeAction {
                         .build());
                 Map<String, Object> result = new HashMap<>();
                 result.put("messages", newMessages);
-                result.put("sender", "Reporter");
+                result.put("currentAgent", "reporter");
                 return result;
             }
 
@@ -137,15 +137,15 @@ public class ReporterNode implements NodeAction {
                     .toolCalls(List.of(toolCall))
                     .build());
 
-            log.info("Node end | reporter_node | user_id={} | mode=prepare_send | email_masked={}",
+            log.info("Node end | reporter | user_id={} | mode=prepare_send | email_masked={}",
                     userId, maskEmail(email));
 
             Map<String, Object> result = new HashMap<>();
             result.put("messages", newMessages);
-            result.put("sender", "Reporter");
+            result.put("currentAgent", "reporter");
             return result;
         } catch (Exception e) {
-            log.error("Node error | reporter_node | user_id={} | error={}", userId, e.getMessage());
+            log.error("Node error | reporter | user_id={} | error={}", userId, e.getMessage());
             List<AgentState.Message> newMessages = new ArrayList<>(messages);
             newMessages.add(AgentState.Message.builder()
                     .type(AgentState.Message.MessageType.AI)
@@ -153,7 +153,7 @@ public class ReporterNode implements NodeAction {
                     .build());
             Map<String, Object> result = new HashMap<>();
             result.put("messages", newMessages);
-            result.put("sender", "Reporter");
+            result.put("currentAgent", "reporter");
             return result;
         }
     }
@@ -239,8 +239,8 @@ public class ReporterNode implements NodeAction {
 
     private boolean isRoutingDecision(String content) {
         if (content == null) return false;
-        SupervisorDecision decision = SupervisorDecision.fromText(content);
-        return decision != SupervisorDecision.FINISH || content.contains("KnowledgeWorker") || content.contains("Reporter") || content.contains("Assistant");
+        OrchestratorDecision decision = OrchestratorDecision.fromText(content);
+        return decision != OrchestratorDecision.FINISH || content.contains("data_analyst") || content.contains("reporter") || content.contains("assistant");
     }
 
     private String buildReporterSuccessMessage(String toolResult) {
@@ -275,12 +275,12 @@ public class ReporterNode implements NodeAction {
         return "";
     }
 
-    private List<AgentState.Message> trimSupervisorDecision(List<AgentState.Message> messages) {
+    private List<AgentState.Message> trimOrchestratorDecision(List<AgentState.Message> messages) {
         if (messages == null || messages.isEmpty()) return messages;
         AgentState.Message last = messages.get(messages.size() - 1);
         if (last.getType() == AgentState.Message.MessageType.AI) {
-            SupervisorDecision decision = SupervisorDecision.fromText(last.getContent());
-            if (decision == SupervisorDecision.REPORTER || decision == SupervisorDecision.KNOWLEDGE_WORKER || decision == SupervisorDecision.ASSISTANT) {
+            OrchestratorDecision decision = OrchestratorDecision.fromText(last.getContent());
+            if (decision == OrchestratorDecision.REPORTER || decision == OrchestratorDecision.DATA_ANALYST || decision == OrchestratorDecision.ASSISTANT) {
                 List<AgentState.Message> trimmed = new ArrayList<>(messages);
                 trimmed.remove(trimmed.size() - 1);
                 return trimmed;

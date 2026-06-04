@@ -8,15 +8,18 @@ public class AgentState {
     private List<Message> messages = new ArrayList<>();
     private String userId;
     private String memoryContext;
-    private String sender;
+    private String currentAgent;           // 当前活跃的 agent："data_analyst" | "reporter" | "assistant"
+    private String orchestratorContext;    // orchestrator 输出的任务描述，传递给下游 Worker
 
     public AgentState() {}
 
-    public AgentState(List<Message> messages, String userId, String memoryContext, String sender) {
+    public AgentState(List<Message> messages, String userId, String memoryContext,
+                      String currentAgent, String orchestratorContext) {
         this.messages = messages != null ? messages : new ArrayList<>();
         this.userId = userId;
         this.memoryContext = memoryContext;
-        this.sender = sender;
+        this.currentAgent = currentAgent;
+        this.orchestratorContext = orchestratorContext;
     }
 
     public List<Message> getMessages() { return messages; }
@@ -25,8 +28,10 @@ public class AgentState {
     public void setUserId(String userId) { this.userId = userId; }
     public String getMemoryContext() { return memoryContext; }
     public void setMemoryContext(String memoryContext) { this.memoryContext = memoryContext; }
-    public String getSender() { return sender; }
-    public void setSender(String sender) { this.sender = sender; }
+    public String getCurrentAgent() { return currentAgent; }
+    public void setCurrentAgent(String currentAgent) { this.currentAgent = currentAgent; }
+    public String getOrchestratorContext() { return orchestratorContext; }
+    public void setOrchestratorContext(String orchestratorContext) { this.orchestratorContext = orchestratorContext; }
 
     public static AgentStateBuilder builder() {
         return new AgentStateBuilder();
@@ -36,15 +41,17 @@ public class AgentState {
         private List<Message> messages = new ArrayList<>();
         private String userId;
         private String memoryContext;
-        private String sender;
+        private String currentAgent;
+        private String orchestratorContext;
 
         public AgentStateBuilder messages(List<Message> messages) { this.messages = messages; return this; }
         public AgentStateBuilder userId(String userId) { this.userId = userId; return this; }
         public AgentStateBuilder memoryContext(String memoryContext) { this.memoryContext = memoryContext; return this; }
-        public AgentStateBuilder sender(String sender) { this.sender = sender; return this; }
+        public AgentStateBuilder currentAgent(String currentAgent) { this.currentAgent = currentAgent; return this; }
+        public AgentStateBuilder orchestratorContext(String orchestratorContext) { this.orchestratorContext = orchestratorContext; return this; }
 
         public AgentState build() {
-            return new AgentState(messages, userId, memoryContext, sender);
+            return new AgentState(messages, userId, memoryContext, currentAgent, orchestratorContext);
         }
     }
 

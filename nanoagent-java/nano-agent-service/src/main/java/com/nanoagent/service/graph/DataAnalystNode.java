@@ -12,7 +12,6 @@ import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.model.function.FunctionCallback;
 import org.springframework.ai.openai.OpenAiChatModel;
 import org.springframework.ai.openai.OpenAiChatOptions;
 import org.springframework.ai.openai.api.OpenAiApi;
@@ -21,16 +20,15 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
-public class KnowledgeWorkerNode implements NodeAction {
+public class DataAnalystNode implements NodeAction {
 
-    private static final Logger log = LoggerFactory.getLogger(KnowledgeWorkerNode.class);
+    private static final Logger log = LoggerFactory.getLogger(DataAnalystNode.class);
 
     private final NanoAgentProperties properties;
     private final LlmClientConfig llmClientConfig;
 
-    public KnowledgeWorkerNode(NanoAgentProperties properties, LlmClientConfig llmClientConfig) {
+    public DataAnalystNode(NanoAgentProperties properties, LlmClientConfig llmClientConfig) {
         this.properties = properties;
         this.llmClientConfig = llmClientConfig;
     }
@@ -40,11 +38,12 @@ public class KnowledgeWorkerNode implements NodeAction {
     public Map<String, Object> apply(OverAllState state) throws Exception {
         String userId = (String) state.value("userId").orElse("");
         List<AgentState.Message> messages = (List<AgentState.Message>) state.value("messages").orElse(List.of());
-        List<AgentState.Message> history = sanitizeHistory(trimSupervisorDecision(messages));
+        List<AgentState.Message> history = sanitizeHistory(trimOrchestratorDecision(messages));
         String memoryContext = (String) state.value("memoryContext").orElse("");
+        String orchestratorContext = (String) state.value("orchestratorContext").orElse("");
         String latestQuery = latestUserQuery(history);
 
-        log.info("Node start | knowledge_worker_node | user_id={} | history_len={}", userId, history.size());
+        log.info("Node start | data_analyst | user_id={} | history_len={}", userId, history.size());
 
         if (hasDatabaseIntent(latestQuery) && !hasSqlSnippet(latestQuery)) {
             String helpAnswer = buildDatabaseHelpAnswer();
@@ -55,12 +54,13 @@ public class KnowledgeWorkerNode implements NodeAction {
                     .build());
             Map<String, Object> result = new HashMap<>();
             result.put("messages", newMessages);
-            result.put("sender", "KnowledgeWorker");
+            result.put("currentAgent", "data_analyst");
             return result;
         }
 
-        String systemPrompt = Prompts.KNOWLEDGE_WORKER_PROMPT + "\n\n长期记忆上下文：\n" +
-                (memoryContext.isBlank() ? "（无）" : memoryContext);
+        String systemPrompt = String.format(Prompts.ANALYST_PROMPT, Prompts.BUSINESS_DB_SCHEMA)
+                + "\n\n长期记忆上下文：\n" + (memoryContext.isBlank() ? "（无）" : memoryContext)
+                + (orchestratorContext.isBlank() ? "" : "\n\n任务描述：\n" + orchestratorContext);
 
         Map<String, String> llmProfile = (Map<String, String>) state.value("llmProfile").orElse(Map.of());
         String content;
@@ -94,10 +94,10 @@ public class KnowledgeWorkerNode implements NodeAction {
 
             toolCalls = extractToolCalls(response);
             if (toolCalls != null && !toolCalls.isEmpty()) {
-                log.info("KnowledgeWorker requested {} tool calls", toolCalls.size());
+                log.info("DataAnalyst requested {} tool calls", toolCalls.size());
             }
         } catch (Exception e) {
-            log.error("Node error | knowledge_worker_node | user_id={} | error={}", userId, e.getMessage());
+            log.error("Node error | data_analyst | user_id={} | error={}", userId, e.getMessage());
             content = "数据分析节点处理失败，请稍后重试。";
         }
 
@@ -110,12 +110,12 @@ public class KnowledgeWorkerNode implements NodeAction {
         }
         newMessages.add(aiBuilder.build());
 
-        log.info("Node end | knowledge_worker_node | user_id={} | tool_calls={}",
+        log.info("Node end | data_analyst | user_id={} | tool_calls={}",
                 userId, toolCalls != null ? toolCalls.size() : 0);
 
         Map<String, Object> result = new HashMap<>();
         result.put("messages", newMessages);
-        result.put("sender", "KnowledgeWorker");
+        result.put("currentAgent", "data_analyst");
         return result;
     }
 
@@ -144,6 +144,7 @@ public class KnowledgeWorkerNode implements NodeAction {
     private List<OpenAiApi.FunctionTool> getToolDefinitions() {
         List<OpenAiApi.FunctionTool> tools = new ArrayList<>();
 
+        // data_analyst 只绑定数据库查询和时间工具
         tools.add(buildToolDef("tool_query_database", "执行SQL查询数据库",
                 Map.of("type", "object", "properties",
                         Map.of("sql", Map.of("type", "string", "description", "要执行的SQL查询语句"))),
@@ -152,54 +153,6 @@ public class KnowledgeWorkerNode implements NodeAction {
         tools.add(buildToolDef("tool_get_current_time", "获取当前时间",
                 Map.of("type", "object", "properties", Map.of()),
                 List.of()));
-
-        tools.add(buildToolDef("tool_search", "网络搜索关键字查询信息",
-                Map.of("type", "object", "properties",
-                        Map.of("query", Map.of("type", "string", "description", "搜索关键词"))),
-                List.of("query")));
-
-        tools.add(buildToolDef("tool_list_allowed_directories", "获取允许的目录列表",
-                Map.of("type", "object", "properties", Map.of()),
-                List.of()));
-
-        tools.add(buildToolDef("tool_is_path_allowed", "检查路径是否被允许",
-                Map.of("type", "object", "properties",
-                        Map.of("path", Map.of("type", "string", "description", "要检查的路径"))),
-                List.of("path")));
-
-        tools.add(buildToolDef("tool_read_file", "读取文件内容",
-                Map.of("type", "object", "properties",
-                        Map.of("path", Map.of("type", "string", "description", "文件路径"))),
-                List.of("path")));
-
-        tools.add(buildToolDef("tool_write_file", "写入文件内容",
-                Map.of("type", "object", "properties",
-                        Map.of("path", Map.of("type", "string", "description", "文件路径"),
-                                "content", Map.of("type", "string", "description", "要写入的内容"))),
-                List.of("path", "content")));
-
-        tools.add(buildToolDef("tool_create_directory", "创建目录",
-                Map.of("type", "object", "properties",
-                        Map.of("path", Map.of("type", "string", "description", "目录路径"))),
-                List.of("path")));
-
-        tools.add(buildToolDef("tool_move_file", "移动文件",
-                Map.of("type", "object", "properties",
-                        Map.of("src", Map.of("type", "string", "description", "源路径"),
-                                "dst", Map.of("type", "string", "description", "目标路径"))),
-                List.of("src", "dst")));
-
-        tools.add(buildToolDef("tool_edit_file", "编辑文件内容",
-                Map.of("type", "object", "properties",
-                        Map.of("path", Map.of("type", "string", "description", "文件路径"),
-                                "edits", Map.of("type", "array", "description", "编辑操作列表"))),
-                List.of("path")));
-
-        tools.add(buildToolDef("tool_upsert_user_setting", "更新用户设置",
-                Map.of("type", "object", "properties",
-                        Map.of("setting_key", Map.of("type", "string", "description", "设置键"),
-                                "setting_value", Map.of("type", "string", "description", "设置值"))),
-                List.of("setting_key", "setting_value")));
 
         return tools;
     }
@@ -238,12 +191,12 @@ public class KnowledgeWorkerNode implements NodeAction {
         return MessageSanitizer.sanitizeForModel(messages, properties.getMaxModelHistoryMessages());
     }
 
-    private List<AgentState.Message> trimSupervisorDecision(List<AgentState.Message> messages) {
+    private List<AgentState.Message> trimOrchestratorDecision(List<AgentState.Message> messages) {
         if (messages == null || messages.isEmpty()) return messages;
         AgentState.Message last = messages.get(messages.size() - 1);
         if (last.getType() == AgentState.Message.MessageType.AI) {
-            SupervisorDecision decision = SupervisorDecision.fromText(last.getContent());
-            if (decision == SupervisorDecision.KNOWLEDGE_WORKER || decision == SupervisorDecision.REPORTER || decision == SupervisorDecision.ASSISTANT) {
+            OrchestratorDecision decision = OrchestratorDecision.fromText(last.getContent());
+            if (decision == OrchestratorDecision.DATA_ANALYST || decision == OrchestratorDecision.REPORTER || decision == OrchestratorDecision.ASSISTANT) {
                 List<AgentState.Message> trimmed = new ArrayList<>(messages);
                 trimmed.remove(trimmed.size() - 1);
                 return trimmed;
