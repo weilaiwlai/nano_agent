@@ -18,6 +18,7 @@ from .config import (
 )
 from memory import UserMemoryManager
 from .utils import _mask_email_for_log, _short_text_digest, _truncate_for_log
+from .skills.tools import run_skill_script, read_reference
 
 _memory_manager: UserMemoryManager | None = None
 
@@ -120,20 +121,7 @@ async def _call_mcp_tool(
     )
 
 
-@tool("tool_search")
-async def tool_search(query: str) -> str:
-    """网络搜索关键字查询信息"""
-    result = await _call_mcp_tool("search", {"query": query})
-    logging.info(f"搜索 | tool=search | query={query} | result={result}")
-    return result
-
-
-@tool("tool_get_current_time")
-async def tool_get_current_time() -> str:
-    """获取当前时间"""
-    result = await _call_mcp_tool("get_current_time", {})
-    logging.info(f"获取时间 | tool=get_current_time | result={result}")
-    return result
+# ── 高危工具定义 ──────────────────────────────────────────────────────
 
 
 @tool("tool_query_database")
@@ -177,6 +165,25 @@ async def tool_send_report(email: str, content: str) -> str:
     return await _call_mcp_tool("send_report", {"email": email, "content": content})
 
 
+# ── 安全工具定义 ──────────────────────────────────────────────────────
+
+
+@tool("tool_search")
+async def tool_search(query: str) -> str:
+    """网络搜索关键字查询信息"""
+    result = await _call_mcp_tool("search", {"query": query})
+    logging.info(f"搜索 | tool=search | query={query} | result={result}")
+    return result
+
+
+@tool("tool_get_current_time")
+async def tool_get_current_time() -> str:
+    """获取当前时间"""
+    result = await _call_mcp_tool("get_current_time", {})
+    logging.info(f"获取时间 | tool=get_current_time | result={result}")
+    return result
+
+
 @tool("tool_upsert_user_setting")
 async def tool_upsert_user_setting(
     setting_key: str,
@@ -211,42 +218,55 @@ async def tool_upsert_user_setting(
         enforced_user_id=effective_user_id,
     )
 
+
 @tool("tool_list_allowed_directories")
 async def tool_list_allowed_directories() -> str:
     """获取允许的目录列表"""
     result = await _call_mcp_tool("list_allowed_directories", {})
     logging.info(f"获取目录 | tool=list_allowed_directories | result={result}")
     return result
+
+
 @tool("tool_is_path_allowed")
 async def tool_is_path_allowed(path: str) -> str:
     """检查路径是否被允许"""
     result = await _call_mcp_tool("is_path_allowed", {"path": path})
     logging.info(f"检查路径 | tool=is_path_allowed | path={path} | result={result}")
     return result
+
+
 @tool("tool_read_file")
 async def tool_read_file(path: str) -> str:
     """读取文件内容"""
     result = await _call_mcp_tool("read_file", {"path": path})
     logging.info(f"读取文件 | tool=read_file | path={path} | result={result}")
     return result
+
+
 @tool("tool_write_file")
 async def tool_write_file(path: str, content: str) -> str:
     """写入文件内容"""
     result = await _call_mcp_tool("write_file", {"path": path, "content": content})
     logging.info(f"写入文件 | tool=write_file | path={path} | content={content} | result={result}")
     return result
+
+
 @tool("tool_create_directory")
 async def tool_create_directory(path: str) -> str:
     """创建目录"""
     result = await _call_mcp_tool("create_directory", {"path": path})
     logging.info(f"创建目录 | tool=create_directory | path={path} | result={result}")
     return result
+
+
 @tool("tool_move_file")
 async def tool_move_file(src: str, dst: str) -> str:
     """移动文件"""
     result = await _call_mcp_tool("move_file", {"src": src, "dst": dst})
     logging.info(f"移动文件 | tool=move_file | src={src} | dst={dst} | result={result}")
     return result
+
+
 @tool("tool_edit_file")
 async def tool_edit_file(path: str, edits: list) -> str:
     """编辑文件内容"""
@@ -254,8 +274,28 @@ async def tool_edit_file(path: str, edits: list) -> str:
     logging.info(f"编辑文件 | tool=edit_file | path={path} | edits={edits} | result={result}")
     return result
 
-tools = [tool_query_database, tool_upsert_user_setting, tool_get_current_time, tool_search, tool_list_allowed_directories,
-         tool_is_path_allowed, tool_read_file, tool_write_file, tool_create_directory, tool_move_file, tool_edit_file]
-permission_tools = [tool_send_report]
-tools_node = ToolNode(tools)
-permission_tools_node = ToolNode(permission_tools)
+
+# ── 工具分组 ──────────────────────────────────────────────────────────
+
+# 高危工具：需要 interrupt_before 人工审批
+HIGH_RISK_TOOLS = [tool_query_database, tool_send_report]
+
+# 安全工具：直接执行，无需审批
+SAFE_TOOLS = [
+    tool_search,
+    tool_get_current_time,
+    tool_upsert_user_setting,
+    tool_list_allowed_directories,
+    tool_is_path_allowed,
+    tool_read_file,
+    tool_write_file,
+    tool_create_directory,
+    tool_move_file,
+    tool_edit_file,
+    run_skill_script,
+    read_reference,
+]
+
+# ToolNode 实例
+high_risk_tools_node = ToolNode(HIGH_RISK_TOOLS)
+safe_tools_node = ToolNode(SAFE_TOOLS)

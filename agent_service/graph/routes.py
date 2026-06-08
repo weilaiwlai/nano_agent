@@ -9,193 +9,135 @@ from typing import Literal
 
 from langchain_core.messages import AIMessage
 
-from typing import Literal
-
-from langchain_core.messages import AIMessage
-
-from .config import logger, REPORT_INTERNAL_EMAIL_DOMAINS, SENSITIVE_REPORT_KEYWORDS
-from .nodes import _normalize_supervisor_decision
+from .config import logger
+from .nodes import _parse_orchestrator_route
+from .skills.loader import SkillRegistry
 from .state import AgentState
 from .utils import _message_to_text
 
 
-def _route_after_supervisor(
+# ── 技能注册表（用于 assistant 路由判断） ──────────────────────────────
+
+_skill_registry = SkillRegistry()
+
+
+def _get_skill_names() -> list[str]:
+    """获取当前可用的技能名称列表。"""
+    _skill_registry.refresh()
+    return [s["name"] for s in _skill_registry.list_skills()]
+
+
+# ── 路由函数 ──────────────────────────────────────────────────────────
+
+
+def route_after_orchestrator(
     state: AgentState,
-) -> Literal["knowledge_worker_node", "reporter_node", "assistant_node", "__end__"]:
-    """主管路由：根据主管最后输出决定下一跳。"""
+) -> Literal["data_analyst", "reporter", "assistant", "__end__"]:
+    """编排器路由：根据 orchestrator 输出路由到对应 Agent。"""
     messages = state.get("messages", [])
     if not messages:
-        logger.info("路由 | supervisor_node -> END | reason=no_messages")
+        logger.info("路由 | orchestrator -> END | reason=no_messages")
         return "__end__"
 
     last_message = messages[-1]
     if not isinstance(last_message, AIMessage):
-        logger.info("路由 | supervisor_node -> END | reason=last_not_ai")
+        logger.info("路由 | orchestrator -> END | reason=last_not_ai")
         return "__end__"
 
-    decision = _normalize_supervisor_decision(_message_to_text(last_message))
-    if decision == "KnowledgeWorker":
-        logger.info("路由 | supervisor_node -> knowledge_worker_node")
-        return "knowledge_worker_node"
-    if decision == "Reporter":
-        logger.info("路由 | supervisor_node -> reporter_node")
-        return "reporter_node"
-    if decision == "Assistant":
-        logger.info("路由 | supervisor_node -> assistant_node")
-        return "assistant_node"
+    decision = _parse_orchestrator_route(_message_to_text(last_message))
+    if decision == "data_analyst":
+        logger.info("路由 | orchestrator -> data_analyst")
+        return "data_analyst"
+    if decision == "reporter":
+        logger.info("路由 | orchestrator -> reporter")
+        return "reporter"
+    if decision == "assistant":
+        logger.info("路由 | orchestrator -> assistant")
+        return "assistant"
 
-    logger.info("路由 | supervisor_node -> END")
+    logger.info("路由 | orchestrator -> END | decision=%s", decision)
     return "__end__"
 
 
-def _route_after_knowledge_worker(
+def route_after_analyst(
     state: AgentState,
-) -> Literal["tools_node", "__end__"]:
-    """数据科学家节点后路由。"""
+) -> Literal["high_risk_tools", "__end__"]:
+    """数据分析节点后路由：有工具调用 → high_risk_tools，否则 → END。"""
     messages = state.get("messages", [])
     if not messages:
         return "__end__"
 
     last_message = messages[-1]
     if isinstance(last_message, AIMessage) and last_message.tool_calls:
-        logger.info("路由 | knowledge_worker_node -> tools_node | tool_calls=%d", len(last_message.tool_calls))
-        return "tools_node"
+        logger.info("路由 | data_analyst -> high_risk_tools | tool_calls=%d", len(last_message.tool_calls))
+        return "high_risk_tools"
 
-    logger.info("路由 | knowledge_worker_node -> END | reason=no_tool_calls")
+    logger.info("路由 | data_analyst -> END | reason=no_tool_calls")
     return "__end__"
 
 
-def _extract_email_from_tool_calls(messages: list) -> str:
-    """从 tool_calls 中提取目标邮箱地址。"""
-    import re
-    for msg in reversed(messages):
-        if not isinstance(msg, AIMessage) or not msg.tool_calls:
-            continue
-        for call in msg.tool_calls:
-            args = call.get("args", call.get("arguments", {}))
-            if isinstance(args, dict):
-                email = str(args.get("email", "")).strip()
-                if re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
-                    return email.lower()
-    return ""
-
-
-def _email_domain(email: str) -> str:
-    """提取邮箱域名。"""
-    if "@" not in email:
-        return ""
-    return email.split("@", 1)[1].lower()
-
-
-def _has_sensitive_content(messages: list) -> bool:
-    """检查最近消息中是否包含敏感业务关键词。"""
-    for msg in reversed(messages):
-        if not isinstance(msg, AIMessage):
-            continue
-        text = _message_to_text(msg).lower()
-        return any(kw in text for kw in SENSITIVE_REPORT_KEYWORDS)
-    return False
-
-
-def _route_after_reporter(
+def route_after_reporter(
     state: AgentState,
-) -> Literal["permission_tools_node", "__end__"]:
-    """报告节点后路由（HITL 权限分级）。
-
-    分级策略：
-    - 发送到内部域名的普通报告 → 自动放行（跳过 permission_tools_node）
-    - 发送到外部域名的报告 → 需要 HITL 审批
-    - 包含敏感财务关键词的报告 → 强制 HITL 审批（无论内外部）
-    - 无工具调用 → 结束
-    """
+) -> Literal["high_risk_tools", "__end__"]:
+    """邮件报告节点后路由：有工具调用 → high_risk_tools，否则 → END。"""
     messages = state.get("messages", [])
     if not messages:
         return "__end__"
 
     last_message = messages[-1]
-    if not isinstance(last_message, AIMessage) or not last_message.tool_calls:
-        logger.info("路由 | reporter_node -> END | reason=no_tool_calls")
-        return "__end__"
+    if isinstance(last_message, AIMessage) and last_message.tool_calls:
+        logger.info("路由 | reporter -> high_risk_tools | tool_calls=%d", len(last_message.tool_calls))
+        return "high_risk_tools"
 
-    # HITL 权限分级判断
-    target_email = _extract_email_from_tool_calls(messages)
-    target_domain = _email_domain(target_email)
-    has_sensitive = _has_sensitive_content(messages)
-
-    # 包含敏感内容 → 强制审批
-    if has_sensitive:
-        logger.info(
-            "路由 | reporter_node -> permission_tools_node | reason=sensitive_content | email=%s",
-            target_email,
-        )
-        return "permission_tools_node"
-
-    # 内部域名 + 配置了内部域名白名单 → 自动放行
-    if target_domain and REPORT_INTERNAL_EMAIL_DOMAINS and target_domain in REPORT_INTERNAL_EMAIL_DOMAINS:
-        logger.info(
-            "路由 | reporter_node -> END | reason=internal_email_auto_approve | domain=%s",
-            target_domain,
-        )
-        return "__end__"
-
-    # 其他情况（外部域名或未配置内部域名白名单）→ 需要审批
-    logger.info(
-        "路由 | reporter_node -> permission_tools_node | reason=external_or_unknown | email=%s | domain=%s",
-        target_email,
-        target_domain,
-    )
-    return "permission_tools_node"
+    logger.info("路由 | reporter -> END | reason=no_tool_calls")
+    return "__end__"
 
 
-def _route_after_assistant(state: AgentState) -> Literal["skills_tools_node", "__end__"]:
-    """Assistant 节点后路由：如果有工具调用或skill名称则进入技能工具节点，否则结束。"""
+def route_after_assistant(
+    state: AgentState,
+) -> Literal["safe_tools", "__end__"]:
+    """Assistant 节点后路由：有工具调用或技能名称 → safe_tools，否则 → END。"""
     messages = state.get("messages", [])
     if not messages:
         return "__end__"
 
     last_message = messages[-1]
-    
+
     # 检查是否有工具调用
     if isinstance(last_message, AIMessage) and last_message.tool_calls:
-        logger.info("路由 | assistant_node -> skills_tools_node | tool_calls=%d", len(last_message.tool_calls))
-        return "skills_tools_node"
-    
-    # 检查是否是skill名称（文本内容）
+        logger.info("路由 | assistant -> safe_tools | tool_calls=%d", len(last_message.tool_calls))
+        return "safe_tools"
+
+    # 检查是否是技能名称（文本内容）
     if isinstance(last_message, AIMessage):
         content = last_message.content.strip()
-        # 检查内容是否是有效的skill名称
-        from .skills.loader import SkillRegistry
-        registry = SkillRegistry()
-        skills = registry.list_skills()
-        skill_names = [s["name"] for s in skills]
-        
+        skill_names = _get_skill_names()
         if content in skill_names:
-            logger.info("路由 | assistant_node -> skills_tools_node | skill_name=%s", content)
-            return "skills_tools_node"
+            logger.info("路由 | assistant -> safe_tools | skill_name=%s", content)
+            return "safe_tools"
 
-    logger.info("路由 | assistant_node -> END | reason=no_tool_calls_or_skill_name")
+    logger.info("路由 | assistant -> END | reason=no_tool_calls_or_skill_name")
     return "__end__"
 
 
-def _route_after_tools(state: AgentState) -> Literal["knowledge_worker_node", "reporter_node"]:
-    """工具节点后路由：按 sender 回到对应 Worker。"""
-    sender = (state.get("sender") or "").strip()
-    # if sender == "Reporter":
-    #     logger.info("路由 | tools_node -> reporter_node | sender=%s", sender)
-    #     return "reporter_node"
-    if sender == "KnowledgeWorker":
-        logger.info("路由 | tools_node -> knowledge_worker_node | sender=%s", sender or "unknown")
-        return "knowledge_worker_node"
-    return "knowledge_worker_node"
-def _route_after_permission_tools(state: AgentState) -> Literal["reporter_node"]:
-    """工具节点后路由：按 sender 回到对应 Worker。"""
-    sender = (state.get("sender") or "").strip()
-    if sender == "Reporter":
-        logger.info("路由 | permission_tools_node -> reporter_node | sender=%s", sender)
-        return "reporter_node"
+def route_after_high_risk_tools(
+    state: AgentState,
+) -> Literal["data_analyst", "reporter"]:
+    """高危工具执行后路由：根据 current_agent 回跳到对应 Worker。"""
+    current_agent = (state.get("current_agent") or "").strip()
 
-def _route_after_skills_tools(state: AgentState) -> Literal["assistant_node"]:
-    """工具节点后路由：按 sender 回到 Assistant 节点。"""
-    sender = (state.get("sender") or "").strip()
-    logger.info("路由 | skills_tools_node -> assistant_node | sender=%s", sender or "unknown")
-    return "assistant_node"
+    if current_agent == "reporter":
+        logger.info("路由 | high_risk_tools -> reporter | current_agent=%s", current_agent)
+        return "reporter"
+
+    # 默认回跳到 data_analyst
+    logger.info("路由 | high_risk_tools -> data_analyst | current_agent=%s", current_agent or "unknown")
+    return "data_analyst"
+
+
+def route_after_safe_tools(
+    state: AgentState,
+) -> Literal["assistant"]:
+    """安全工具执行后路由：回到 assistant。"""
+    logger.info("路由 | safe_tools -> assistant")
+    return "assistant"

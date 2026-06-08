@@ -156,23 +156,22 @@ def _get_non_stream_chat_llm(config: RunnableConfig | None) -> ChatOpenAI:
 
 def _get_bound_llm(
     config: RunnableConfig | None,
-    worker: Literal["knowledge_worker", "reporter", "travel_planner"],
+    agent: str,
 ) -> Any:
-    """获取绑定工具后的 Worker LLM。"""
+    """获取绑定工具后的 Agent LLM。"""
     profile = _llm_profile_from_config(config)
     if profile is None:
         raise RuntimeError("未提供可用的 LLM 配置，请先创建会话或设置默认 OPENAI_API_KEY。")
 
     base_llm = _chat_llm_from_profile(profile)
-    cache_key = (profile["model"], profile["base_url"], profile["api_key"], worker)
+    cache_key = (profile["model"], profile["base_url"], profile["api_key"], agent)
     cached = _bound_llm_cache.get(cache_key)
     if cached is not None:
         return cached
 
-    if worker == "knowledge_worker":
-        bound = base_llm.bind_tools([tool_query_database, tool_get_current_time, tool_search])
-    elif worker == "travel_planner":
-        bound = base_llm.bind_tools([tool_get_current_time])
+    if agent == "data_analyst":
+        # data_analyst 只绑定数据库查询和时间工具
+        bound = base_llm.bind_tools([tool_query_database, tool_get_current_time])
     else:
         bound = base_llm.bind_tools([tool_upsert_user_setting])
 

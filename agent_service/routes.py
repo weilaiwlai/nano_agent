@@ -429,7 +429,7 @@ def register_routes(app: FastAPI, session_store: Any, session_store_ready: bool,
                             await get_app_graph().aupdate_state(
                                 config,
                                 {"messages": reject_messages},
-                                as_node="tools_node",
+                                as_node="high_risk_tools",
                             )
                             logger.info(
                                 "自动清理待审批 send_report | user_id=%s | pending_tools=%d | reason=new_non_email_query",
@@ -558,7 +558,8 @@ def register_routes(app: FastAPI, session_store: Any, session_store_ready: bool,
             "messages": messages,
             "user_id": user_id,
             "memory_context": "",
-            "sender": "",
+            "current_agent": "",
+            "orchestrator_context": "",
         }
 
         return StreamingResponse(
@@ -618,7 +619,7 @@ def register_routes(app: FastAPI, session_store: Any, session_store_ready: bool,
                 await get_app_graph().aupdate_state(
                     config,
                     {"messages": tool_messages},
-                    as_node="tools_node",
+                    as_node="high_risk_tools",
                 )
                 logger.info(
                     "审批结果 | user_id=%s | action=reject | tool_calls=%d",

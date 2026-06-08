@@ -7,7 +7,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 
 from .config import (
-    GRAPH_CHECKPOINTER_ALLOW_MEMORY_FALLBACK,  #
+    GRAPH_CHECKPOINTER_ALLOW_MEMORY_FALLBACK,
     GRAPH_CHECKPOINTER_BACKEND,
     GRAPH_CHECKPOINTER_POSTGRES_URL,
     GRAPH_CHECKPOINTER_PREFIX,
@@ -17,25 +17,21 @@ from .config import (
 )
 from .nodes import (
     assistant_node,
-    knowledge_worker_node,
+    data_analyst_node,
+    memory_retriever_node,
+    orchestrator_node,
     reporter_node,
-    retrieve_memory_node,
-    supervisor_node,
-    skills_tools_node,
 )
 from .routes import (
-    _route_after_assistant,
-    _route_after_knowledge_worker,
-    _route_after_reporter,
-    _route_after_supervisor,
-    _route_after_tools,
-    _route_after_skills_tools,
-    _route_after_permission_tools,
+    route_after_analyst,
+    route_after_assistant,
+    route_after_high_risk_tools,
+    route_after_orchestrator,
+    route_after_reporter,
+    route_after_safe_tools,
 )
 from .state import AgentState
-from .tools import tools_node, permission_tools_node
-from langgraph.prebuilt import ToolNode
-from .skills.tools import DEFAULT_TOOLS
+from .tools import high_risk_tools_node, safe_tools_node
 
 app_graph = _graph_runtime_globals["app_graph"]
 _checkpointer_cm = _graph_runtime_globals["_checkpointer_cm"]
@@ -79,7 +75,7 @@ async def _build_persistent_checkpointer() -> tuple[Any, Any | None, str]:
         except Exception as exc:  # noqa: BLE001
             raise RuntimeError(
                 "未安装 Postgres checkpointer 依赖：langgraph-checkpoint-postgres + psycopg[binary]"
-            ) from exc     
+            ) from exc
         cm = AsyncPostgresSaver.from_conn_string(GRAPH_CHECKPOINTER_POSTGRES_URL)
         saver = await cm.__aenter__()
         await saver.setup()
@@ -90,83 +86,92 @@ async def _build_persistent_checkpointer() -> tuple[Any, Any | None, str]:
 
 
 def _build_workflow() -> StateGraph:
-    """创建并返回状态图构建器。"""
+    """创建并返回状态图构建器。
+
+    架构：
+    START → memory_retriever → orchestrator
+                                    ↓
+                    ┌───────────────┼───────────────┐
+                    ↓               ↓               ↓
+              data_analyst      reporter        assistant
+                    ↓               ↓               ↓
+              high_risk_tools  high_risk_tools  safe_tools
+                    ↓               ↓               ↓
+              data_analyst      reporter        assistant
+                    ↓               ↓               ↓
+                   END             END             END
+    """
     workflow = StateGraph(AgentState)
-    workflow.add_node("retrieve_memory_node", retrieve_memory_node)
-    workflow.add_node("supervisor_node", supervisor_node)
-    workflow.add_node("knowledge_worker_node", knowledge_worker_node)
-    workflow.add_node("reporter_node", reporter_node)
-    workflow.add_node("assistant_node", assistant_node)
-    workflow.add_node("tools_node", tools_node)
-    workflow.add_node("permission_tools_node", permission_tools_node)
-    workflow.add_node("skills_tools_node", skills_tools_node)
-    workflow.add_node("skill_tools", ToolNode(DEFAULT_TOOLS))
 
-    workflow.add_edge(START, "retrieve_memory_node")
-    workflow.add_edge("retrieve_memory_node", "supervisor_node")
+    # ── 添加节点 ──────────────────────────────────────────────────────
+    workflow.add_node("memory_retriever", memory_retriever_node)
+    workflow.add_node("orchestrator", orchestrator_node)
+    workflow.add_node("data_analyst", data_analyst_node)
+    workflow.add_node("reporter", reporter_node)
+    workflow.add_node("assistant", assistant_node)
+    workflow.add_node("high_risk_tools", high_risk_tools_node)
+    workflow.add_node("safe_tools", safe_tools_node)
 
+    # ── 添加边 ──────────────────────────────────────────────────────
+
+    # 入口
+    workflow.add_edge(START, "memory_retriever")
+    workflow.add_edge("memory_retriever", "orchestrator")
+
+    # orchestrator 条件路由 → 三个 Agent
     workflow.add_conditional_edges(
-        "supervisor_node",
-        _route_after_supervisor,
+        "orchestrator",
+        route_after_orchestrator,
         {
-            "knowledge_worker_node": "knowledge_worker_node",
-            "reporter_node": "reporter_node",
-            "assistant_node": "assistant_node",
+            "data_analyst": "data_analyst",
+            "reporter": "reporter",
+            "assistant": "assistant",
             "__end__": END,
         },
     )
 
+    # data_analyst 条件路由 → high_risk_tools 或 END
     workflow.add_conditional_edges(
-        "knowledge_worker_node",
-        _route_after_knowledge_worker,
+        "data_analyst",
+        route_after_analyst,
         {
-            "tools_node": "tools_node",
-            "__end__": END,
-        },
-    )
-    
-    workflow.add_conditional_edges(
-        "reporter_node",
-        _route_after_reporter,
-        {
-            "permission_tools_node": "permission_tools_node",
+            "high_risk_tools": "high_risk_tools",
             "__end__": END,
         },
     )
 
+    # reporter 条件路由 → high_risk_tools 或 END
     workflow.add_conditional_edges(
-        "assistant_node",
-        _route_after_assistant,
+        "reporter",
+        route_after_reporter,
         {
-            "skills_tools_node": "skills_tools_node",
+            "high_risk_tools": "high_risk_tools",
             "__end__": END,
         },
     )
 
+    # assistant 条件路由 → safe_tools 或 END
     workflow.add_conditional_edges(
-        "tools_node",
-        _route_after_tools,
+        "assistant",
+        route_after_assistant,
         {
-            "knowledge_worker_node": "knowledge_worker_node",
-            # "reporter_node": "reporter_node",
-        },
-    )
-    workflow.add_conditional_edges(
-        "permission_tools_node",
-        _route_after_permission_tools,
-        {
-            "reporter_node": "reporter_node",
+            "safe_tools": "safe_tools",
+            "__end__": END,
         },
     )
 
-    workflow.add_edge("skills_tools_node", "skill_tools")  
+    # high_risk_tools 回跳 → 根据 current_agent 回到对应 Worker
     workflow.add_conditional_edges(
-        "skill_tools",
-        _route_after_skills_tools,
+        "high_risk_tools",
+        route_after_high_risk_tools,
         {
-            "assistant_node": "assistant_node",
+            "data_analyst": "data_analyst",
+            "reporter": "reporter",
         },
     )
+
+    # safe_tools 回跳 → 回到 assistant
+    workflow.add_edge("safe_tools", "assistant")
 
     return workflow
 
@@ -194,7 +199,11 @@ async def init_graph_runtime() -> Any:
         _checkpointer_cm = None
         _checkpointer_backend_in_use = "memory"
 
-    app_graph = _build_workflow().compile(checkpointer=checkpointer, interrupt_before=["permission_tools_node"])
+    # 编译图，高危工具需要人工审批
+    app_graph = _build_workflow().compile(
+        checkpointer=checkpointer,
+        interrupt_before=["high_risk_tools"],
+    )
     logger.info("graph runtime 初始化完成 | checkpointer_backend=%s", _checkpointer_backend_in_use)
     return app_graph
 
@@ -222,12 +231,7 @@ def get_app_graph() -> Any:
 
 
 def save_graph_visualization(graph: Any, filename: str = "graph.png") -> None:
-    """保存状态图的可视化表示。
-
-    Args:
-        graph: 状态图实例。
-        filename: 保存文件路径。
-    """
+    """保存状态图的可视化表示。"""
     try:
         with open(filename, "wb") as f:
             f.write(graph.get_graph().draw_mermaid_png())

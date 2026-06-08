@@ -12,4 +12,5 @@ class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
     user_id: str
     memory_context: str
-    sender: str
+    current_agent: str          # 当前活跃的 agent："data_analyst" | "reporter" | "assistant"
+    orchestrator_context: str   # orchestrator 输出的任务描述，传递给下游 Worker

@@ -522,12 +522,12 @@ def _graph_config(user_id: str, llm_profile: dict[str, str], thread_id: str) -> 
     }
 
 def _is_waiting_for_tools_node(state: Any) -> bool:
-    """判断图是否被中断在 permission_tools_node 前。"""
+    """判断图是否被中断在 high_risk_tools 前。"""
     next_nodes = getattr(state, "next", ()) or ()
     if isinstance(next_nodes, str):
-        return next_nodes == "permission_tools_node"
+        return next_nodes == "high_risk_tools"
     try:
-        return "permission_tools_node" in set(next_nodes)
+        return "high_risk_tools" in set(next_nodes)
     except TypeError:
         return False
 
@@ -684,8 +684,8 @@ async def _stream_graph_events(
 
     active_node = ""
     emitted_worker_token = False
-    worker_nodes = {"knowledge_worker_node", "reporter_node", "assistant_node"}
-    broadcast_nodes = {"supervisor_node", "knowledge_worker_node", "reporter_node", "assistant_node"}
+    worker_nodes = {"data_analyst", "reporter", "assistant"}
+    broadcast_nodes = {"orchestrator", "data_analyst", "reporter", "assistant"}
 
     try:
         async for event in get_app_graph().astream_events(initial_input, config=config, version="v1"):
